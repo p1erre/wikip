@@ -11,7 +11,7 @@ Run tests with:
 """
 
 import pytest
-from src.tools.youtube_tools import (
+from src.agents.video.tools import (
     extract_video_id_from_url,
     get_video_metadata,
     get_youtube_transcript,

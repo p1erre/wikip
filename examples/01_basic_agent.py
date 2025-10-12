@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 
-from src.agents.video_agent import create_video_agent
+from src.agents.video import create_video_agent
 
 # Load environment variables from .env file
 load_dotenv()

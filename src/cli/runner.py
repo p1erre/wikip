@@ -35,7 +35,7 @@ from typing import Any
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.tools.youtube_tools import (
+from src.agents.video.tools import (
     extract_video_id_from_url,
     get_video_metadata,
     get_youtube_transcript,
@@ -118,7 +118,7 @@ def cmd_agent_analyze(args: argparse.Namespace) -> int:
     Note: This requires API keys to be set in .env
     """
     try:
-        from src.agents.video_agent import analyze_video
+        from src.agents.video import analyze_video
         
         print(f"🤖 Analyzing video: {args.url}")
         print("(This may take a moment...)\n")

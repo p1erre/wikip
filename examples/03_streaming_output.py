@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
 
-from src.tools.youtube_tools import (
+from src.agents.video.tools import (
     extract_video_id_from_url,
     get_video_metadata,
     get_youtube_transcript,

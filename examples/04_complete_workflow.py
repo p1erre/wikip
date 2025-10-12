@@ -29,7 +29,7 @@ from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 
-from src.agents.video_agent import create_video_agent
+from src.agents.video import create_video_agent
 
 load_dotenv()
 
