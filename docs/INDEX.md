@@ -18,6 +18,11 @@ Complete guide to all documentation in this project.
    - Run this to check your setup
    - `python verify_setup.py`
 
+4. **[UV_GUIDE.md](UV_GUIDE.md)** 💨 **Fast Package Management**
+   - Using uv for 10-100x faster installs
+   - Quick reference and tips
+   - Migration from pip
+
 ## 📚 Learning Materials
 
 ### Core Tutorial
