@@ -23,6 +23,11 @@ Complete guide to all documentation in this project.
    - Quick reference and tips
    - Migration from pip
 
+5. **[CLI_GUIDE.md](CLI_GUIDE.md)** 🖥️ **Command Line Interface**
+   - Runner CLI for testing tools/agents
+   - Future interactive CLI (Claude-style)
+   - Examples and usage
+
 ## 📚 Learning Materials
 
 ### Core Tutorial
