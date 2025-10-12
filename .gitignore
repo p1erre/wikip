@@ -7,6 +7,11 @@ __pycache__/
 venv/
 env/
 *.egg-info/
+dist/
+build/
+
+# uv
+.venv/
 
 # Environment
 .env

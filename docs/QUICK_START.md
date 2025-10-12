@@ -4,9 +4,25 @@ Get up and running with the LangGraph video agent in 5 minutes!
 
 ## Setup (2 minutes)
 
+**Using uv (Recommended - Super Fast!)**
+
+```bash
+# 1. Install dependencies (creates .venv automatically)
+uv sync
+
+# 2. Set up API key
+cp .env.example .env
+# Edit .env and add: OPENAI_API_KEY=sk-your-key-here
+
+# 3. Test installation
+uv run python -c "import langgraph; print('✅ LangGraph installed!')"
+```
+
+**Using pip**
+
 ```bash
 # 1. Install dependencies
-pip install -r requirements.txt
+pip install -e .
 
 # 2. Set up API key
 cp .env.example .env
@@ -19,6 +35,10 @@ python -c "import langgraph; print('✅ LangGraph installed!')"
 ## Run Your First Agent (1 minute)
 
 ```bash
+# With uv
+uv run python examples/01_basic_agent.py
+
+# Or with pip (after activating venv)
 python examples/01_basic_agent.py
 ```
 

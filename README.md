@@ -25,16 +25,32 @@ This project teaches you LangGraph through a practical example: analyzing YouTub
 
 ### Installation
 
+**Option 1: Using uv (Recommended - Fast!)**
+
 ```bash
+# Install uv if you haven't already
+# curl -LsSf https://astral.sh/uv/install.sh | sh
+
 # Clone or navigate to the project
 cd video-to-book
 
+# Install dependencies (uv creates venv automatically)
+uv sync
+
+# Set up environment variables
+cp .env.example .env
+# Edit .env and add your OPENAI_API_KEY
+```
+
+**Option 2: Using pip**
+
+```bash
 # Create virtual environment
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
-pip install -r requirements.txt
+pip install -e .
 
 # Set up environment variables
 cp .env.example .env
@@ -44,14 +60,16 @@ cp .env.example .env
 ### Run Your First Example
 
 ```bash
-# Example 1: Basic agent with tools
+# With uv
+uv run python examples/01_basic_agent.py
+
+# Or activate the environment first
+source .venv/bin/activate  # uv creates .venv by default
 python examples/01_basic_agent.py
 
-# Example 2: Custom graph workflow
-python examples/02_custom_graph.py
-
-# Example 3: Streaming output
-python examples/03_streaming_output.py
+# More examples
+uv run python examples/02_custom_graph.py
+uv run python examples/03_streaming_output.py
 ```
 
 ## 📚 Learning Path
