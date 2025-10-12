@@ -192,7 +192,8 @@ def get_youtube_transcript(video_id: str) -> dict[str, Any]:
         from youtube_transcript_api import YouTubeTranscriptApi
         
         # Try to get transcript (prefers manual captions over auto-generated)
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        api = YouTubeTranscriptApi()
+        transcript_list = api.fetch(video_id)
         
         # Format the transcript segments
         segments = [
@@ -312,12 +313,128 @@ def download_youtube_content(
         }
 
 
+@tool(args_schema=VideoIDInput)
+def generate_transcript_from_audio(video_id: str, audio_path: str = None) -> dict[str, Any]:
+    """
+    Generate transcript from downloaded audio using Whisper.
+    
+    This tool uses OpenAI's Whisper API for files < 25MB,
+    or falls back to local Whisper for larger files.
+    Use this when YouTube captions are not available.
+    
+    Args:
+        video_id: YouTube video ID
+        audio_path: Path to audio file (optional, will use default if not provided)
+        
+    Returns:
+        Dictionary with transcript segments or error
+        
+    Example:
+        >>> result = generate_transcript_from_audio("abc123", "./downloads/abc123.m4a")
+        >>> result['segments'][0]
+        {'text': 'Hello world', 'start': 0.0, 'end': 1.5}
+    """
+    logger.info(f"Generating transcript for video ID: {video_id}")
+    
+    try:
+        # Determine audio file path
+        if audio_path is None:
+            audio_path = f"./downloads/{video_id}.m4a"
+        
+        audio_file = Path(audio_path)
+        
+        if not audio_file.exists():
+            return {
+                "success": False,
+                "error": f"Audio file not found: {audio_path}",
+                "suggestion": "Download the audio first using download_youtube_content"
+            }
+        
+        # Check file size (Whisper API limit is 25MB)
+        file_size_mb = audio_file.stat().st_size / (1024 * 1024)
+        logger.info(f"Audio file size: {file_size_mb:.1f}MB")
+        
+        if file_size_mb < 25:
+            # Use OpenAI Whisper API for smaller files
+            logger.info("Using OpenAI Whisper API...")
+            from openai import OpenAI
+            
+            client = OpenAI()
+            
+            with open(audio_file, "rb") as f:
+                transcript_response = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=f,
+                    response_format="verbose_json",
+                    timestamp_granularities=["segment"]
+                )
+            
+            # Format segments
+            segments = []
+            if hasattr(transcript_response, 'segments'):
+                segments = [
+                    {
+                        "text": segment.text,
+                        "start": segment.start,
+                        "end": segment.end,
+                        "duration": segment.end - segment.start
+                    }
+                    for segment in transcript_response.segments
+                ]
+            
+            source = "whisper_api"
+        else:
+            # Use local Whisper for larger files
+            logger.info("File too large for API, using local Whisper...")
+            import whisper
+            
+            # Load model (base is good balance of speed/accuracy)
+            model = whisper.load_model("base")
+            
+            # Transcribe
+            result = model.transcribe(str(audio_file), verbose=False)
+            
+            # Format segments
+            segments = [
+                {
+                    "text": segment["text"].strip(),
+                    "start": segment["start"],
+                    "end": segment["end"],
+                    "duration": segment["end"] - segment["start"]
+                }
+                for segment in result.get("segments", [])
+            ]
+            
+            source = "whisper_local"
+        
+        logger.info(f"Successfully generated {len(segments)} transcript segments")
+        
+        return {
+            "success": True,
+            "video_id": video_id,
+            "num_segments": len(segments),
+            "segments": segments,
+            "total_duration": segments[-1]["end"] if segments else 0,
+            "source": source
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to generate transcript: {str(e)}"
+        logger.error(error_msg)
+        return {
+            "success": False,
+            "error": error_msg,
+            "suggestion": "Make sure openai-whisper is installed: pip install openai-whisper"
+        }
+
+
 # List of all tools for easy import
 YOUTUBE_TOOLS = [
     extract_video_id_from_url,
     get_video_metadata,
     get_youtube_transcript,
     download_youtube_content,
+    generate_transcript_from_audio,
 ]
 
 

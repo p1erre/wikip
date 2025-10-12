@@ -16,10 +16,16 @@ Usage:
     agent = video.create_video_agent()
 """
 
-# Import main agent functions
+# Import workflow functions (simple, deterministic)
+from src.agents.video.workflow import (
+    analyze_video_workflow,
+    get_transcript,
+    analyze_video,  # Backward compatible
+)
+
+# Import LLM agent (for advanced use cases)
 from src.agents.video.agent import (
     create_video_agent,
-    analyze_video,
     VideoAgentState,
 )
 
@@ -33,14 +39,18 @@ from src.agents.video.tools import (
 )
 
 __all__ = [
-    # Agent
+    # Workflow (simple, recommended)
+    "analyze_video_workflow",
+    "get_transcript",
+    "analyze_video",  # Backward compatible
+    # LLM Agent (advanced)
     "create_video_agent",
-    "analyze_video",
     "VideoAgentState",
     # Tools
     "extract_video_id_from_url",
     "get_video_metadata",
     "get_youtube_transcript",
     "download_youtube_content",
+    "generate_transcript_from_audio",
     "get_tools",
 ]
