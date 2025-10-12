@@ -123,7 +123,7 @@ def create_video_agent(
     agent = create_react_agent(
         llm,
         tools,
-        state_modifier=VIDEO_AGENT_SYSTEM_PROMPT
+        prompt=VIDEO_AGENT_SYSTEM_PROMPT
     )
     
     logger.info("Video agent created successfully")

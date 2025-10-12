@@ -21,9 +21,12 @@ build/
 downloads/
 output/
 cache/
+.cache/
 *.mp4
 *.m4a
 *.webm
+*.json.bak
+transcript_*.json
 
 # IDE
 .vscode/
