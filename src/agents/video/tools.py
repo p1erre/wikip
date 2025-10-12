@@ -19,6 +19,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from src.utils.cache import get_cache
+from src.utils.decorators import with_cache_control, cached_metadata, cached_transcript
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -105,17 +106,22 @@ def extract_video_id_from_url(youtube_url: str) -> dict[str, Any]:
     }
 
 
+@with_cache_control
+@cached_metadata
 @tool(args_schema=VideoIDInput)
-def get_video_metadata(video_id: str, use_cache: bool = True) -> dict[str, Any]:
+def get_video_metadata(video_id: str) -> dict[str, Any]:
     """
     Get metadata about a YouTube video without downloading it.
     
     This retrieves information like title, duration, description, etc.
-    Uses yt-dlp to extract metadata. Results are cached for faster access.
+    Uses yt-dlp to extract metadata. Results are automatically cached.
     
     Args:
         video_id: YouTube video ID
-        use_cache: Whether to use cached data (default: True)
+        
+    Cache Control (optional kwargs):
+        use_cache: Use cached data if available (default: True)
+        force_refresh: Force refresh from API even if cached (default: False)
         
     Returns:
         Dictionary with video metadata or error information
@@ -124,15 +130,11 @@ def get_video_metadata(video_id: str, use_cache: bool = True) -> dict[str, Any]:
         >>> metadata = get_video_metadata("dQw4w9WgXcQ")
         >>> metadata['title']
         'Rick Astley - Never Gonna Give You Up'
+        
+        >>> # Force refresh
+        >>> metadata = get_video_metadata("dQw4w9WgXcQ", force_refresh=True)
     """
     logger.info(f"Fetching metadata for video ID: {video_id}")
-    
-    # Check cache first
-    if use_cache:
-        cache = get_cache()
-        cached_metadata = cache.get_metadata(video_id)
-        if cached_metadata:
-            return cached_metadata
     
     try:
         import yt_dlp
@@ -166,12 +168,6 @@ def get_video_metadata(video_id: str, use_cache: bool = True) -> dict[str, Any]:
             }
             
             logger.info(f"Successfully fetched metadata for: {metadata['title']}")
-            
-            # Save to cache
-            if use_cache:
-                cache = get_cache()
-                cache.save_metadata(video_id, metadata)
-            
             return metadata
             
     except Exception as e:
@@ -184,16 +180,21 @@ def get_video_metadata(video_id: str, use_cache: bool = True) -> dict[str, Any]:
 
 
 @tool(args_schema=VideoIDInput)
-def get_youtube_transcript(video_id: str, use_cache: bool = True) -> dict[str, Any]:
+@with_cache_control
+@cached_transcript
+def get_youtube_transcript(video_id: str) -> dict[str, Any]:
     """
     Get the transcript/captions from a YouTube video.
     
     This tries to fetch existing captions (manual or auto-generated).
-    Returns transcript segments with timestamps. Results are cached.
+    Returns transcript segments with timestamps. Results are automatically cached.
     
     Args:
         video_id: YouTube video ID
-        use_cache: Whether to use cached data (default: True)
+        
+    Cache Control (optional kwargs):
+        use_cache: Use cached data if available (default: True)
+        force_refresh: Force refresh from API even if cached (default: False)
         
     Returns:
         Dictionary with transcript segments or error information
@@ -204,13 +205,6 @@ def get_youtube_transcript(video_id: str, use_cache: bool = True) -> dict[str, A
         {'text': 'We're no strangers to love', 'start': 0.0, 'duration': 3.5}
     """
     logger.info(f"Fetching transcript for video ID: {video_id}")
-    
-    # Check cache first
-    if use_cache:
-        cache = get_cache()
-        cached_transcript = cache.get_transcript(video_id)
-        if cached_transcript:
-            return cached_transcript
     
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
@@ -235,21 +229,14 @@ def get_youtube_transcript(video_id: str, use_cache: bool = True) -> dict[str, A
         
         logger.info(f"Successfully fetched {len(segments)} transcript segments")
         
-        result = {
+        return {
             "success": True,
             "video_id": video_id,
             "num_segments": len(segments),
             "segments": segments,
             "total_duration": segments[-1]["end"] if segments else 0,
-            "source": "youtube"  # Mark the source
+            "source": "youtube"  # Decorator uses this for multi-source caching
         }
-        
-        # Save to cache with source
-        if use_cache:
-            cache = get_cache()
-            cache.save_transcript(video_id, result, source="youtube")
-        
-        return result
         
     except Exception as e:
         error_msg = f"Failed to get transcript: {str(e)}"
