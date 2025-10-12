@@ -74,7 +74,7 @@ def analyze_video_workflow(
     
     # Step 1: Extract video ID
     logger.info("Step 1: Extracting video ID...")
-    id_result = extract_video_id_from_url.invoke({"youtube_url": youtube_url})
+    id_result = extract_video_id_from_url.func(youtube_url)
     
     if not id_result.get("success"):
         result["errors"].append(f"Failed to extract video ID: {id_result.get('error')}")
@@ -87,7 +87,7 @@ def analyze_video_workflow(
     
     # Step 2: Get metadata
     logger.info("Step 2: Fetching metadata...")
-    metadata_result = get_video_metadata.invoke({"video_id": video_id})
+    metadata_result = get_video_metadata.func(video_id)
     
     if metadata_result.get("success"):
         result["metadata"] = metadata_result
@@ -99,7 +99,7 @@ def analyze_video_workflow(
     
     # Step 3: Try YouTube transcript
     logger.info("Step 3: Trying YouTube transcript...")
-    transcript_result = get_youtube_transcript.invoke({"video_id": video_id})
+    transcript_result = get_youtube_transcript.func(video_id)
     
     if transcript_result.get("success") and not force_download:
         result["transcript"] = transcript_result
@@ -113,11 +113,11 @@ def analyze_video_workflow(
     # Step 4: Download audio and generate transcript
     if force_download or not transcript_result.get("success"):
         logger.info("Step 4: Downloading audio...")
-        download_result = download_youtube_content.invoke({
-            "video_id": video_id,
-            "download_video": False,
-            "output_dir": output_dir
-        })
+        download_result = download_youtube_content.func(
+            video_id=video_id,
+            download_video=False,
+            output_dir=output_dir
+        )
         
         if not download_result.get("success"):
             result["errors"].append(f"Failed to download: {download_result.get('error')}")
@@ -129,17 +129,18 @@ def analyze_video_workflow(
         logger.info(f"✓ Downloaded audio: {audio_path}")
         
         # Step 5: Generate transcript from audio
-        logger.info("Step 5: Generating transcript with Whisper...")
-        whisper_result = generate_transcript_from_audio.invoke({
-            "video_id": video_id,
-            "audio_path": audio_path
-        })
+        logger.info("Step 5: Generating transcript from audio...")
+        transcript_result = generate_transcript_from_audio.func(
+            video_id=video_id,
+            audio_path=audio_path
+        )
         
-        if whisper_result.get("success"):
-            result["transcript"] = whisper_result
+        if transcript_result.get("success"):
+            result["transcript"] = transcript_result
             result["steps_completed"].append("generate_transcript")
-            logger.info(f"✓ Generated transcript: {whisper_result.get('num_segments')} segments")
+            logger.info(f"✓ Generated transcript: {transcript_result.get('num_segments')} segments")
         else:
+            result["errors"].append(f"Failed to generate transcript: {transcript_result.get('error')}")
             result["errors"].append(f"Failed to generate transcript: {whisper_result.get('error')}")
     
     logger.info(f"Workflow complete. Steps: {result['steps_completed']}")

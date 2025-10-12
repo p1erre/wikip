@@ -165,6 +165,7 @@ def get_video_metadata(video_id: str) -> dict[str, Any]:
                 "thumbnail_url": info.get("thumbnail"),
                 "has_subtitles": len(info.get("subtitles", {})) > 0,
                 "has_automatic_captions": len(info.get("automatic_captions", {})) > 0,
+                "chapters": info.get("chapters", []),  # Include chapters if available
             }
             
             logger.info(f"Successfully fetched metadata for: {metadata['title']}")
