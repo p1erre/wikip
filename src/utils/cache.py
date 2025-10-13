@@ -5,8 +5,10 @@ Provides caching for:
 - Video metadata
 - Transcripts
 - Downloaded audio files
+- Extracted slides
+- Vision analysis results
 
-This speeds up development and testing by avoiding repeated downloads.
+This speeds up development and testing by avoiding repeated downloads and processing.
 """
 
 import json
@@ -23,12 +25,15 @@ class VideoCache:
     
     Directory structure:
         .cache/
-        ├── metadata/
-        │   └── {video_id}.json
-        ├── transcripts/
-        │   └── {video_id}.json
-        └── audio/
-            └── {video_id}.m4a
+        └── videos/
+            └── {video_id}/
+                ├── metadata.json
+                ├── transcript_{source}.json
+                ├── audio.m4a
+                ├── slides/
+                │   ├── slides_metadata.json
+                │   └── slide_*.jpg
+                └── vision_analysis.json
     """
     
     def __init__(self, cache_dir: str = ".cache"):
@@ -39,17 +44,18 @@ class VideoCache:
             cache_dir: Root directory for cache (default: .cache)
         """
         self.cache_dir = Path(cache_dir)
-        self.metadata_dir = self.cache_dir / "metadata"
-        self.transcripts_dir = self.cache_dir / "transcripts"
-        self.audio_dir = self.cache_dir / "audio"
+        self.videos_dir = self.cache_dir / "videos"
         
         # Create directories if they don't exist
         self._ensure_dirs()
     
     def _ensure_dirs(self):
         """Create cache directories if they don't exist."""
-        for dir_path in [self.metadata_dir, self.transcripts_dir, self.audio_dir]:
-            dir_path.mkdir(parents=True, exist_ok=True)
+        self.videos_dir.mkdir(parents=True, exist_ok=True)
+    
+    def _get_video_dir(self, video_id: str) -> Path:
+        """Get the directory for a specific video."""
+        return self.videos_dir / video_id
     
     # ========================================================================
     # METADATA CACHE
@@ -65,7 +71,7 @@ class VideoCache:
         Returns:
             Metadata dict if cached, None otherwise
         """
-        cache_file = self.metadata_dir / f"{video_id}.json"
+        cache_file = self._get_video_dir(video_id) / "metadata.json"
         
         if cache_file.exists():
             logger.info(f"Loading metadata from cache: {video_id}")
@@ -82,7 +88,9 @@ class VideoCache:
             video_id: YouTube video ID
             metadata: Metadata dict to cache
         """
-        cache_file = self.metadata_dir / f"{video_id}.json"
+        video_dir = self._get_video_dir(video_id)
+        video_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = video_dir / "metadata.json"
         
         logger.info(f"Saving metadata to cache: {video_id}")
         with open(cache_file, 'w') as f:
@@ -108,9 +116,11 @@ class VideoCache:
         Returns:
             Transcript dict if cached, None otherwise
         """
+        video_dir = self._get_video_dir(video_id)
+        
         if source:
             # Look for specific source
-            cache_file = self.transcripts_dir / f"{video_id}_{source}.json"
+            cache_file = video_dir / f"transcript_{source}.json"
             if cache_file.exists():
                 logger.info(f"Loading {source} transcript from cache: {video_id}")
                 with open(cache_file, 'r') as f:
@@ -118,7 +128,7 @@ class VideoCache:
         else:
             # Look for any transcript (prefer YouTube > Whisper API > Whisper local)
             for src in ['youtube', 'whisper_api', 'whisper_local']:
-                cache_file = self.transcripts_dir / f"{video_id}_{src}.json"
+                cache_file = video_dir / f"transcript_{src}.json"
                 if cache_file.exists():
                     logger.info(f"Loading {src} transcript from cache: {video_id}")
                     with open(cache_file, 'r') as f:
@@ -144,7 +154,9 @@ class VideoCache:
         if source is None:
             source = transcript.get('source', 'youtube')
         
-        cache_file = self.transcripts_dir / f"{video_id}_{source}.json"
+        video_dir = self._get_video_dir(video_id)
+        video_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = video_dir / f"transcript_{source}.json"
         
         logger.info(f"Saving {source} transcript to cache: {video_id}")
         with open(cache_file, 'w') as f:
@@ -160,9 +172,10 @@ class VideoCache:
         Returns:
             List of available sources (e.g., ['youtube', 'whisper_api'])
         """
+        video_dir = self._get_video_dir(video_id)
         sources = []
         for src in ['youtube', 'whisper_api', 'whisper_local']:
-            cache_file = self.transcripts_dir / f"{video_id}_{src}.json"
+            cache_file = video_dir / f"transcript_{src}.json"
             if cache_file.exists():
                 sources.append(src)
         return sources
@@ -181,9 +194,10 @@ class VideoCache:
         Returns:
             Path to audio file if cached, None otherwise
         """
+        video_dir = self._get_video_dir(video_id)
         # Check for common audio formats
         for ext in ['.m4a', '.mp3', '.webm', '.opus']:
-            cache_file = self.audio_dir / f"{video_id}{ext}"
+            cache_file = video_dir / f"audio{ext}"
             if cache_file.exists():
                 logger.info(f"Found cached audio: {cache_file}")
                 return cache_file
@@ -203,14 +217,132 @@ class VideoCache:
         """
         import shutil
         
+        video_dir = self._get_video_dir(video_id)
+        video_dir.mkdir(parents=True, exist_ok=True)
+        
         source = Path(source_path)
-        dest = self.audio_dir / f"{video_id}{source.suffix}"
+        dest = video_dir / f"audio{source.suffix}"
         
         if not dest.exists():
             logger.info(f"Copying audio to cache: {video_id}")
             shutil.copy2(source, dest)
         
         return dest
+    
+    # ========================================================================
+    # SLIDES CACHE
+    # ========================================================================
+    
+    def get_slides(self, video_id: str) -> Optional[dict[str, Any]]:
+        """
+        Get cached slides data for a video.
+        
+        Args:
+            video_id: Video identifier (YouTube ID or local filename)
+            
+        Returns:
+            Slides dict if cached, None otherwise
+        """
+        cache_file = self._get_video_dir(video_id) / "slides" / "slides_metadata.json"
+        
+        if cache_file.exists():
+            logger.info(f"Loading slides from cache: {video_id}")
+            with open(cache_file, 'r') as f:
+                return json.load(f)
+        
+        return None
+    
+    def save_slides(self, video_id: str, slides_data: dict[str, Any]) -> Path:
+        """
+        Save slides data to cache.
+        
+        Args:
+            video_id: Video identifier
+            slides_data: Slides dict from extract_slides_robust()
+            
+        Returns:
+            Path to cached slides directory
+        """
+        slides_dir = self._get_video_dir(video_id) / "slides"
+        slides_dir.mkdir(parents=True, exist_ok=True)
+        
+        cache_file = slides_dir / "slides_metadata.json"
+        
+        logger.info(f"Saving slides to cache: {video_id}")
+        with open(cache_file, 'w') as f:
+            json.dump(slides_data, f, indent=2)
+        
+        return slides_dir
+    
+    def get_slides_dir(self, video_id: str) -> Path:
+        """
+        Get path to slides directory for a video.
+        
+        Args:
+            video_id: Video identifier
+            
+        Returns:
+            Path to slides directory
+        """
+        return self._get_video_dir(video_id) / "slides"
+    
+    # ========================================================================
+    # VISION ANALYSIS CACHE
+    # ========================================================================
+    
+    def get_vision_analysis(self, video_id: str) -> Optional[list[dict[str, Any]]]:
+        """
+        Get cached vision analysis for a video.
+        
+        Args:
+            video_id: Video identifier
+            
+        Returns:
+            Vision analysis list if cached, None otherwise
+        """
+        cache_file = self._get_video_dir(video_id) / "vision_analysis.json"
+        
+        if cache_file.exists():
+            logger.info(f"Loading vision analysis from cache: {video_id}")
+            with open(cache_file, 'r') as f:
+                data = json.load(f)
+                # Return just the slides array if wrapped in metadata
+                if isinstance(data, dict) and 'slides' in data:
+                    return data['slides']
+                return data
+        
+        return None
+    
+    def save_vision_analysis(
+        self, 
+        video_id: str, 
+        analysis: list[dict[str, Any]],
+        metadata: Optional[dict[str, Any]] = None
+    ) -> None:
+        """
+        Save vision analysis to cache.
+        
+        Args:
+            video_id: Video identifier
+            analysis: Vision analysis list from analyze_slides_with_vision()
+            metadata: Optional metadata (provider, model, etc.)
+        """
+        video_dir = self._get_video_dir(video_id)
+        video_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = video_dir / "vision_analysis.json"
+        
+        # Wrap in metadata if provided
+        if metadata:
+            data = {
+                **metadata,
+                'slides': analysis
+            }
+        else:
+            data = analysis
+        
+        logger.info(f"Saving vision analysis to cache: {video_id}")
+        with open(cache_file, 'w') as f:
+            json.dump(data, f, indent=2)
     
     # ========================================================================
     # CACHE MANAGEMENT
@@ -221,25 +353,17 @@ class VideoCache:
         Clear all cached data for a specific video.
         
         Args:
-            video_id: YouTube video ID
+            video_id: YouTube video ID or video identifier
         """
+        import shutil
+        
         logger.info(f"Clearing cache for video: {video_id}")
         
-        # Remove metadata
-        metadata_file = self.metadata_dir / f"{video_id}.json"
-        if metadata_file.exists():
-            metadata_file.unlink()
-        
-        # Remove transcript
-        transcript_file = self.transcripts_dir / f"{video_id}.json"
-        if transcript_file.exists():
-            transcript_file.unlink()
-        
-        # Remove audio (all formats)
-        for ext in ['.m4a', '.mp3', '.webm', '.opus']:
-            audio_file = self.audio_dir / f"{video_id}{ext}"
-            if audio_file.exists():
-                audio_file.unlink()
+        # Remove entire video directory
+        video_dir = self._get_video_dir(video_id)
+        if video_dir.exists():
+            shutil.rmtree(video_dir)
+            logger.info(f"Removed cache directory: {video_dir}")
     
     def clear_all(self) -> None:
         """Clear entire cache."""
@@ -262,9 +386,6 @@ class VideoCache:
             return sum(f.stat().st_size for f in path.rglob('*') if f.is_file())
         
         return {
-            "metadata": dir_size(self.metadata_dir),
-            "transcripts": dir_size(self.transcripts_dir),
-            "audio": dir_size(self.audio_dir),
             "total": dir_size(self.cache_dir)
         }
     
@@ -277,15 +398,14 @@ class VideoCache:
         """
         sizes = self.get_cache_size()
         
+        # Count videos
+        num_videos = len(list(self.videos_dir.glob("*"))) if self.videos_dir.exists() else 0
+        
         return {
             "cache_dir": str(self.cache_dir.absolute()),
-            "size_bytes": sizes,
-            "size_mb": {k: v / (1024 * 1024) for k, v in sizes.items()},
-            "cached_videos": {
-                "metadata": len(list(self.metadata_dir.glob("*.json"))),
-                "transcripts": len(list(self.transcripts_dir.glob("*.json"))),
-                "audio": len(list(self.audio_dir.glob("*")))
-            }
+            "size_bytes": sizes['total'],
+            "size_mb": sizes['total'] / (1024 * 1024),
+            "num_videos": num_videos
         }
 
 
