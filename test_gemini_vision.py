@@ -11,7 +11,7 @@ load_dotenv()
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.vision import SlideVisionAnalyzer
+from src.agents.slides import SlideVisionAnalyzer
 
 def main():
     print("\n" + "="*70)

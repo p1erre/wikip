@@ -1,0 +1,83 @@
+{
+  "video_path": ".test_videos/r1qZpYAmqmg_12min.mp4",
+  "num_slides": 2,
+  "provider": "openrouter",
+  "model": "openai/gpt-4o",
+  "slides": [
+    {
+      "slide_number": 1,
+      "cluster_id": 0,
+      "image_path": "demo_vision_output/slides/slide_001.jpg",
+      "timestamp": 0.0,
+      "duration": 61.44,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 0,
+          "start": 0.0,
+          "end": 61.44
+        }
+      ],
+      "num_builds": 0,
+      "builds": [],
+      "start_time": 0.0,
+      "end_time": 61.44,
+      "transcript": null,
+      "vision_analysis": {
+        "slide_type": "title",
+        "main_topic": "Introduction to training LLMs for AI agents.",
+        "code_snippets": [],
+        "diagrams_and_charts": [],
+        "formulas_and_equations": [],
+        "data_and_numbers": [],
+        "key_visual_concepts": [],
+        "actionable_content": {
+          "has_code": false,
+          "has_diagram": false,
+          "has_formula": false,
+          "has_data": false,
+          "needs_visual_description": false
+        }
+      }
+    },
+    {
+      "slide_number": 2,
+      "cluster_id": 1,
+      "image_path": "demo_vision_output/slides/slide_002.jpg",
+      "timestamp": 61.44,
+      "duration": 2.8799999999999955,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 1,
+          "start": 61.44,
+          "end": 64.32
+        }
+      ],
+      "num_builds": 0,
+      "builds": [],
+      "start_time": 61.44,
+      "end_time": 64.32,
+      "transcript": null,
+      "vision_analysis": {
+        "slide_type": "content",
+        "main_topic": "Introduction to Large Language Models (LLMs) and their impact.",
+        "code_snippets": [],
+        "diagrams_and_charts": [],
+        "formulas_and_equations": [],
+        "data_and_numbers": [],
+        "key_visual_concepts": [
+          "Icons representing various AI models illustrate diversity in LLMs.",
+          "Chat interface shows a conversation example with ChatGPT, illustrating its human-like responses."
+        ],
+        "actionable_content": {
+          "has_code": false,
+          "has_diagram": false,
+          "has_formula": false,
+          "has_data": false,
+          "needs_visual_description": true
+        }
+      }
+    }
+  ]
+}

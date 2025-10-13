@@ -51,6 +51,84 @@ class SlideVisionAnalyzer:
         else:
             raise ValueError(f"Unknown provider: {self.provider}")
     
+    def _build_analysis_prompt(self, transcript: Optional[str], timestamp_info: Optional[Dict[str, float]]) -> str:
+        """Build the analysis prompt focusing on value-added content"""
+        prompt_parts = []
+        
+        if timestamp_info:
+            prompt_parts.append(
+                f"This slide appears at {timestamp_info['start']:.1f}s - {timestamp_info['end']:.1f}s "
+                f"(duration: {timestamp_info['end'] - timestamp_info['start']:.1f}s)"
+            )
+        
+        if transcript:
+            prompt_parts.append(f"\nSpeaker transcript during this slide:\n{transcript}\n")
+        
+        prompt_parts.append("""
+Your goal is to extract information that ADDS VALUE for creating educational content.
+Focus ONLY on elements that are hard to get from the transcript alone.
+
+Return as JSON:
+{
+  "slide_type": "title|content|diagram|code|data|transition",
+  "main_topic": "what this slide is teaching (1 sentence)",
+  
+  "code_snippets": [
+    {
+      "language": "python|javascript|etc",
+      "code": "actual code text",
+      "explanation": "what this code demonstrates"
+    }
+  ],
+  
+  "diagrams_and_charts": [
+    {
+      "type": "flowchart|architecture|graph|chart|etc",
+      "description": "detailed description of what it shows",
+      "key_elements": ["element 1", "element 2"],
+      "teaching_point": "what concept this visual explains"
+    }
+  ],
+  
+  "formulas_and_equations": [
+    {
+      "formula": "LaTeX or text representation",
+      "variables": {"x": "description", "y": "description"},
+      "explanation": "what this formula represents"
+    }
+  ],
+  
+  "data_and_numbers": [
+    {
+      "metric": "what is being measured",
+      "value": "the number/data",
+      "context": "why this matters"
+    }
+  ],
+  
+  "key_visual_concepts": [
+    "Only include visual concepts that are NOT in the transcript",
+    "e.g., 'Diagram shows 3-layer architecture', 'Chart indicates 40% improvement'"
+  ],
+  
+  "actionable_content": {
+    "has_code": true/false,
+    "has_diagram": true/false,
+    "has_formula": true/false,
+    "has_data": true/false,
+    "needs_visual_description": true/false
+  }
+}
+
+IMPORTANT:
+- Skip simple text bullets (they're redundant with transcript)
+- Focus on CODE, DIAGRAMS, FORMULAS, DATA that need to be captured
+- Only describe visuals if they teach something the transcript doesn't
+- Be concise - this is for content generation, not slide reproduction
+- If slide is just text/title, set all arrays to [] and needs_visual_description to false""")
+        
+        return "\n".join(prompt_parts)
+    
     def analyze_slide(
         self,
         image_path: str,
@@ -87,38 +165,7 @@ class SlideVisionAnalyzer:
             image_data = f.read()
         
         # Build prompt
-        prompt_parts = ["Analyze this presentation slide and extract all information."]
-        
-        if timestamp_info:
-            prompt_parts.append(
-                f"\nThis slide appears at {timestamp_info['start']:.1f}s - {timestamp_info['end']:.1f}s "
-                f"(duration: {timestamp_info['end'] - timestamp_info['start']:.1f}s)"
-            )
-        
-        if transcript:
-            prompt_parts.append(f"\nSpeaker transcript during this slide:\n{transcript}")
-        
-        prompt_parts.append("""
-Extract and return as JSON:
-{
-  "title": "main title or heading",
-  "text_content": ["bullet point 1", "bullet point 2", ...],
-  "visual_elements": {
-    "diagrams": ["description of diagram 1", ...],
-    "charts": ["description of chart 1", ...],
-    "code_snippets": ["code block 1", ...],
-    "images": ["description of image 1", ...],
-    "icons": ["icon 1", ...]
-  },
-  "key_concepts": ["concept 1", "concept 2", ...],
-  "technical_details": "any formulas, equations, or technical specifications",
-  "layout": "description of slide layout and organization",
-  "speaker_alignment": "how the visual content relates to what the speaker is saying"
-}
-
-Be thorough and extract ALL visible text and visual elements.""")
-        
-        prompt = "\n".join(prompt_parts)
+        prompt = self._build_analysis_prompt(transcript, timestamp_info)
         
         # Call Gemini
         response = self.client.generate_content([
@@ -147,38 +194,7 @@ Be thorough and extract ALL visible text and visual elements.""")
             image_b64 = base64.b64encode(f.read()).decode()
         
         # Build prompt
-        prompt_parts = ["Analyze this presentation slide and extract all information."]
-        
-        if timestamp_info:
-            prompt_parts.append(
-                f"\nThis slide appears at {timestamp_info['start']:.1f}s - {timestamp_info['end']:.1f}s "
-                f"(duration: {timestamp_info['end'] - timestamp_info['start']:.1f}s)"
-            )
-        
-        if transcript:
-            prompt_parts.append(f"\nSpeaker transcript during this slide:\n{transcript}")
-        
-        prompt_parts.append("""
-Extract and return as JSON:
-{
-  "title": "main title or heading",
-  "text_content": ["bullet point 1", "bullet point 2", ...],
-  "visual_elements": {
-    "diagrams": ["description of diagram 1", ...],
-    "charts": ["description of chart 1", ...],
-    "code_snippets": ["code block 1", ...],
-    "images": ["description of image 1", ...],
-    "icons": ["icon 1", ...]
-  },
-  "key_concepts": ["concept 1", "concept 2", ...],
-  "technical_details": "any formulas, equations, or technical specifications",
-  "layout": "description of slide layout and organization",
-  "speaker_alignment": "how the visual content relates to what the speaker is saying"
-}
-
-Be thorough and extract ALL visible text and visual elements.""")
-        
-        prompt = "\n".join(prompt_parts)
+        prompt = self._build_analysis_prompt(transcript, timestamp_info)
         
         # Call OpenAI
         response = self.client.chat.completions.create(

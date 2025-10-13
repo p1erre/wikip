@@ -18,8 +18,7 @@ load_dotenv()
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.agents.slides import extract_slides_robust
-from src.vision import analyze_slides_with_vision
+from src.agents.slides import extract_slides_robust, analyze_slides_with_vision
 from src.tools.youtube_tools import get_youtube_transcript
 
 

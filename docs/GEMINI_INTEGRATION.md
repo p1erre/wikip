@@ -22,7 +22,7 @@ pip install google-generativeai
 ### Complete Workflow
 ```python
 from src.agents.slides import extract_slides_robust
-from src.vision import analyze_slides_with_vision
+from src.agents.slides import analyze_slides_with_vision
 from src.tools.youtube_tools import get_youtube_transcript
 
 # 1. Extract slides
