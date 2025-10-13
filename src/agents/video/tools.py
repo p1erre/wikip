@@ -253,19 +253,19 @@ def get_youtube_transcript(video_id: str) -> dict[str, Any]:
 def download_youtube_content(
     video_id: str,
     download_video: bool = False,
-    output_dir: str = "./downloads"
+    output_dir: str = None
 ) -> dict[str, Any]:
     """
     Download a YouTube video or just its audio.
     
-    This tool uses yt-dlp to download content. You can choose to download:
-    - Just audio (faster, smaller file) - default
-    - Full video (slower, larger file)
+    This tool uses yt-dlp to download content. Videos are cached to avoid re-downloading.
+    - Audio files: saved to .cache/audio/
+    - Video files: saved to .cache/video/
     
     Args:
         video_id: YouTube video ID
         download_video: If True, download video. If False, download only audio.
-        output_dir: Directory to save the downloaded file
+        output_dir: Optional custom output directory (defaults to cache)
         
     Returns:
         Dictionary with download information or error
@@ -273,16 +273,38 @@ def download_youtube_content(
     Example:
         >>> result = download_youtube_content("dQw4w9WgXcQ", download_video=False)
         >>> result['file_path']
-        './downloads/dQw4w9WgXcQ.m4a'
+        '.cache/audio/dQw4w9WgXcQ.m4a'
     """
     logger.info(f"Downloading {'video' if download_video else 'audio'} for: {video_id}")
     
     try:
         import yt_dlp
         
+        # Determine output directory - use cache by default
+        if output_dir is None:
+            cache_subdir = "video" if download_video else "audio"
+            output_path = Path(".cache") / cache_subdir
+        else:
+            output_path = Path(output_dir)
+        
         # Create output directory if it doesn't exist
-        output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
+        
+        # Determine expected file extension and path
+        expected_ext = "mp4" if download_video else "m4a"
+        expected_file = output_path / f"{video_id}.{expected_ext}"
+        
+        # Check if file already exists in cache
+        if expected_file.exists():
+            logger.info(f"File already cached: {expected_file}")
+            return {
+                "success": True,
+                "video_id": video_id,
+                "file_path": str(expected_file),
+                "cached": True,
+                "file_size_mb": expected_file.stat().st_size / (1024 * 1024),
+                "content_type": "video" if download_video else "audio"
+            }
         
         # Configure yt-dlp options
         ydl_opts = {
@@ -321,7 +343,8 @@ def download_youtube_content(
                 "title": info.get("title"),
                 "duration": info.get("duration"),
                 "file_size_mb": file_path.stat().st_size / (1024 * 1024) if file_path.exists() else None,
-                "content_type": "video" if download_video else "audio"
+                "content_type": "video" if download_video else "audio",
+                "cached": False
             }
             
             logger.info(f"Successfully downloaded to: {file_path}")
