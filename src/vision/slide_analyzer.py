@@ -23,11 +23,11 @@ class SlideVisionAnalyzer:
         Initialize the vision analyzer
         
         Args:
-            provider: 'google' or 'openai' (default from env VISION_MODEL_PROVIDER)
+            provider: 'google', 'openai', or 'openrouter' (default from env VISION_MODEL_PROVIDER)
             model: Model name (default from env VISION_MODEL)
         """
-        self.provider = provider or os.getenv('VISION_MODEL_PROVIDER', 'google')
-        self.model = model or os.getenv('VISION_MODEL', 'gemini-1.5-flash')
+        self.provider = provider or os.getenv('VISION_MODEL_PROVIDER', 'openrouter')
+        self.model = model or os.getenv('VISION_MODEL', 'google/gemini-flash-1.5')
         
         if self.provider == 'google':
             import google.generativeai as genai
@@ -39,6 +39,15 @@ class SlideVisionAnalyzer:
         elif self.provider == 'openai':
             from openai import OpenAI
             self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        elif self.provider == 'openrouter':
+            from openai import OpenAI
+            api_key = os.getenv('OPENROUTER_API_KEY') or os.getenv('GOOGLE_API_KEY')
+            if not api_key:
+                raise ValueError("OPENROUTER_API_KEY or GOOGLE_API_KEY not found in environment")
+            self.client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=api_key
+            )
         else:
             raise ValueError(f"Unknown provider: {self.provider}")
     
@@ -61,8 +70,10 @@ class SlideVisionAnalyzer:
         """
         if self.provider == 'google':
             return self._analyze_with_gemini(image_path, transcript, timestamp_info)
-        else:
+        elif self.provider in ['openai', 'openrouter']:
             return self._analyze_with_openai(image_path, transcript, timestamp_info)
+        else:
+            raise ValueError(f"Unknown provider: {self.provider}")
     
     def _analyze_with_gemini(
         self,
