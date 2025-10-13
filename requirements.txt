@@ -12,6 +12,7 @@ pydantic-settings>=2.0.0
 # LLM Providers
 openai>=1.0.0
 anthropic>=0.25.0
+google-generativeai>=0.3.0
 
 # Video Processing
 yt-dlp>=2024.0.0
