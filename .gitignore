@@ -29,6 +29,11 @@ cache/
 *.json.bak
 transcript_*.json
 
+# Test outputs
+test_slides_robust/
+slides/
+frames/
+
 # IDE
 .vscode/
 .idea/
