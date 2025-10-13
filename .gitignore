@@ -31,7 +31,6 @@ transcript_*.json
 
 # Test outputs
 test_slides_robust/
-slides/
 frames/
 
 # IDE

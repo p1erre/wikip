@@ -1,56 +1,59 @@
 """
 Video Analysis Agent Module
 
-This module provides a complete video analysis agent with its own tools.
+This module provides a LangGraph agent for video analysis.
 
 Components:
 - agent.py: The LangGraph agent implementation
-- tools.py: YouTube-specific tools for the agent
+- tools.py: YouTube-specific tools decorated with @tool for the agent
+
+For simple processing without an agent, use src.processing.video instead.
 
 Usage:
-    from src.agents.video import create_video_agent, analyze_video
-    from src.agents.video.tools import extract_video_id_from_url
+    # Use the LangGraph agent (advanced)
+    from src.agents.video import create_video_agent
+    agent = create_video_agent()
     
-    # Or import the whole module
-    from src.agents import video
-    agent = video.create_video_agent()
+    # Or use simple processing (recommended)
+    from src.processing.video import analyze_video_workflow
+    result = analyze_video_workflow(youtube_url)
 """
 
-# Import workflow functions (simple, deterministic)
-from src.agents.video.workflow import (
-    analyze_video_workflow,
-    get_transcript,
-    analyze_video,  # Backward compatible
-)
-
-# Import LLM agent (for advanced use cases)
+# Import LLM agent
 from src.agents.video.agent import (
     create_video_agent,
     VideoAgentState,
 )
 
-# Import tools for direct use
+# Import tools for the agent
 from src.agents.video.tools import (
+    get_tools,
+)
+
+# Re-export processing functions for backward compatibility
+from src.processing.video import (
     extract_video_id_from_url,
     get_video_metadata,
     get_youtube_transcript,
     download_youtube_content,
-    get_tools,
+    generate_transcript_from_audio,
+    analyze_video_workflow,
+    get_transcript,
+    analyze_video,
 )
 
 __all__ = [
-    # Workflow (simple, recommended)
-    "analyze_video_workflow",
-    "get_transcript",
-    "analyze_video",  # Backward compatible
-    # LLM Agent (advanced)
+    # LLM Agent
     "create_video_agent",
     "VideoAgentState",
-    # Tools
+    "get_tools",
+    # Processing functions (re-exported for backward compatibility)
     "extract_video_id_from_url",
     "get_video_metadata",
     "get_youtube_transcript",
     "download_youtube_content",
     "generate_transcript_from_audio",
-    "get_tools",
+    "analyze_video_workflow",
+    "get_transcript",
+    "analyze_video",
 ]

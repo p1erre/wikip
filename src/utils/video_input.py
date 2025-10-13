@@ -144,9 +144,7 @@ def get_or_download_youtube_video(
     Returns:
         Path to downloaded video file
     """
-    # Import directly to avoid loading agent
-    import importlib
-    video_tools = importlib.import_module('src.agents.video.tools')
+    from src.processing.video import download_youtube_content
     from src.utils.cache import get_cache
     
     cache = get_cache(cache_dir)
@@ -159,7 +157,7 @@ def get_or_download_youtube_video(
     
     # Download video
     logger.info(f"Downloading YouTube video: {video_id}")
-    result = video_tools.download_youtube_content(video_id)
+    result = download_youtube_content.func(video_id)
     
     if not result.get('success'):
         raise RuntimeError(f"Failed to download video: {result.get('error')}")

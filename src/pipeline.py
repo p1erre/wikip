@@ -5,25 +5,16 @@ Provides a simple API for processing videos (YouTube or local) with automatic ca
 """
 
 import logging
-import importlib
 from pathlib import Path
 from typing import Dict, Any, Optional
 
 from src.utils.cache import get_cache
 from src.utils.video_input import normalize_video_input, get_or_download_youtube_video
-from src.agents.slides import extract_slides_robust, analyze_slides_with_vision
+from src.processing.video import get_youtube_transcript
+from src.processing.slides import extract_slides_robust
+from src.processing.vision import analyze_slides_with_vision
 
 logger = logging.getLogger(__name__)
-
-# Lazy load video tools to avoid importing agent
-_video_tools = None
-
-def _get_video_tools():
-    """Lazy load video tools module"""
-    global _video_tools
-    if _video_tools is None:
-        _video_tools = importlib.import_module('src.agents.video.tools')
-    return _video_tools
 
 
 def process_video(
@@ -144,8 +135,7 @@ def process_video(
         if not transcript:
             logger.info("🔄 Fetching YouTube transcript...")
             try:
-                video_tools = _get_video_tools()
-                transcript_result = video_tools.get_youtube_transcript(video_id)
+                transcript_result = get_youtube_transcript.func(video_id)
                 if transcript_result.get('success'):
                     transcript = transcript_result['transcript']
                     cache.save_transcript(video_id, transcript)

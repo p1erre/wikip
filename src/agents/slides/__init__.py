@@ -1,27 +1,19 @@
 """
-Slides Extraction Agent
+Slides Processing Module (Legacy)
 
-This module provides tools for extracting and analyzing slides from presentation videos.
+This module re-exports slide processing functions for backward compatibility.
+New code should import from src.processing.slides and src.processing.vision instead.
 
-Components:
-- extract_slides: Extract unique slides from video using frame extraction and change detection
-- extract_slides_robust: Advanced slide extraction with progressive reveal detection
-- analyze_slide_content: Extract text from slides using OCR
-- align_slides_with_transcript: Match slides to transcript segments by timestamp
-- SlideVisionAnalyzer: Analyze slides using vision LLMs (Gemini, GPT-4V)
-- analyze_slides_with_vision: Convenience function for vision-based slide analysis
-
-Usage:
+Usage (legacy):
     from src.agents.slides import extract_slides_robust, analyze_slides_with_vision
     
-    # Extract slides from video
-    slides = extract_slides_robust.func(video_path, output_dir="./slides")
-    
-    # Analyze with vision LLM
-    enriched = analyze_slides_with_vision(slides, provider='openrouter', model='openai/gpt-4o')
+Usage (new):
+    from src.processing.slides import extract_slides_robust
+    from src.processing.vision import analyze_slides_with_vision
 """
 
-from src.agents.slides.tools import (
+# Re-export from processing modules for backward compatibility
+from src.processing.slides import (
     extract_video_frames,
     detect_slide_changes,
     extract_slides,
@@ -30,7 +22,7 @@ from src.agents.slides.tools import (
     align_slides_with_transcript,
 )
 
-from src.agents.slides.vision_analyzer import (
+from src.processing.vision import (
     SlideVisionAnalyzer,
     analyze_slides_with_vision,
 )

@@ -1,0 +1,281 @@
+{
+  "video_path": ".test_videos/r1qZpYAmqmg_12min.mp4",
+  "build_policy": "build_collapse",
+  "fps_sample": 2.0,
+  "num_unique_slides": 16,
+  "num_segments": 16,
+  "slides": [
+    {
+      "slide_number": 1,
+      "cluster_id": 0,
+      "image_path": "demo_vision_output/slides/slide_001.jpg",
+      "timestamp": 0.0,
+      "duration": 61.44,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 0,
+          "start": 0.0,
+          "end": 61.44
+        }
+      ],
+      "num_builds": 0,
+      "builds": []
+    },
+    {
+      "slide_number": 2,
+      "cluster_id": 1,
+      "image_path": "demo_vision_output/slides/slide_002.jpg",
+      "timestamp": 61.44,
+      "duration": 2.8799999999999955,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 1,
+          "start": 61.44,
+          "end": 64.32
+        }
+      ],
+      "num_builds": 0,
+      "builds": []
+    },
+    {
+      "slide_number": 3,
+      "cluster_id": 2,
+      "image_path": "demo_vision_output/slides/slide_003.jpg",
+      "timestamp": 64.32,
+      "duration": 15.360000000000014,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 2,
+          "start": 64.32,
+          "end": 79.68
+        }
+      ],
+      "num_builds": 0,
+      "builds": []
+    },
+    {
+      "slide_number": 4,
+      "cluster_id": 3,
+      "image_path": "demo_vision_output/slides/slide_004.jpg",
+      "timestamp": 79.68,
+      "duration": 2.3999999999999915,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 3,
+          "start": 79.68,
+          "end": 82.08
+        }
+      ],
+      "num_builds": 0,
+      "builds": []
+    },
+    {
+      "slide_number": 5,
+      "cluster_id": 4,
+      "image_path": "demo_vision_output/slides/slide_005.jpg",
+      "timestamp": 82.08,
+      "duration": 85.92,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 4,
+          "start": 82.08,
+          "end": 168.0
+        }
+      ],
+      "num_builds": 0,
+      "builds": []
+    },
+    {
+      "slide_number": 6,
+      "cluster_id": 5,
+      "image_path": "demo_vision_output/slides/slide_006.jpg",
+      "timestamp": 168.0,
+      "duration": 2.8799999999999955,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 5,
+          "start": 168.0,
+          "end": 170.88
+        }
+      ],
+      "num_builds": 0,
+      "builds": []
+    },
+    {
+      "slide_number": 7,
+      "cluster_id": 6,
+      "image_path": "demo_vision_output/slides/slide_007.jpg",
+      "timestamp": 170.88,
+      "duration": 130.07999999999998,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 6,
+          "start": 170.88,
+          "end": 300.96
+        }
+      ],
+      "num_builds": 0,
+      "builds": []
+    },
+    {
+      "slide_number": 8,
+      "cluster_id": 7,
+      "image_path": "demo_vision_output/slides/slide_008.jpg",
+      "timestamp": 300.96,
+      "duration": 4.800000000000011,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 7,
+          "start": 300.96,
+          "end": 305.76
+        }
+      ],
+      "num_builds": 0,
+      "builds": []
+    },
+    {
+      "slide_number": 9,
+      "cluster_id": 8,
+      "image_path": "demo_vision_output/slides/slide_009.jpg",
+      "timestamp": 305.76,
+      "duration": 174.24,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 8,
+          "start": 305.76,
+          "end": 480.0
+        }
+      ],
+      "num_builds": 0,
+      "builds": []
+    },
+    {
+      "slide_number": 10,
+      "cluster_id": 9,
+      "image_path": "demo_vision_output/slides/slide_010.jpg",
+      "timestamp": 480.0,
+      "duration": 2.8799999999999955,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 9,
+          "start": 480.0,
+          "end": 482.88
+        }
+      ],
+      "num_builds": 0,
+      "builds": []
+    },
+    {
+      "slide_number": 11,
+      "cluster_id": 10,
+      "image_path": "demo_vision_output/slides/slide_011.jpg",
+      "timestamp": 482.88,
+      "duration": 127.20000000000005,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 10,
+          "start": 482.88,
+          "end": 610.08
+        }
+      ],
+      "num_builds": 0,
+      "builds": []
+    },
+    {
+      "slide_number": 12,
+      "cluster_id": 11,
+      "image_path": "demo_vision_output/slides/slide_012.jpg",
+      "timestamp": 610.08,
+      "duration": 9.599999999999909,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 11,
+          "start": 610.08,
+          "end": 619.68
+        }
+      ],
+      "num_builds": 0,
+      "builds": []
+    },
+    {
+      "slide_number": 13,
+      "cluster_id": 12,
+      "image_path": "demo_vision_output/slides/slide_013.jpg",
+      "timestamp": 619.68,
+      "duration": 2.8799999999999955,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 12,
+          "start": 619.68,
+          "end": 622.56
+        }
+      ],
+      "num_builds": 0,
+      "builds": []
+    },
+    {
+      "slide_number": 14,
+      "cluster_id": 13,
+      "image_path": "demo_vision_output/slides/slide_014.jpg",
+      "timestamp": 622.56,
+      "duration": 46.56000000000006,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 13,
+          "start": 622.56,
+          "end": 669.12
+        }
+      ],
+      "num_builds": 0,
+      "builds": []
+    },
+    {
+      "slide_number": 15,
+      "cluster_id": 14,
+      "image_path": "demo_vision_output/slides/slide_015.jpg",
+      "timestamp": 669.12,
+      "duration": 6.720000000000027,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 14,
+          "start": 669.12,
+          "end": 675.84
+        }
+      ],
+      "num_builds": 0,
+      "builds": []
+    },
+    {
+      "slide_number": 16,
+      "cluster_id": 15,
+      "image_path": "demo_vision_output/slides/slide_016.jpg",
+      "timestamp": 675.84,
+      "duration": 44.19999999999993,
+      "num_occurrences": 1,
+      "occurrences": [
+        {
+          "segment_idx": 15,
+          "start": 675.84,
+          "end": 720.04
+        }
+      ],
+      "num_builds": 0,
+      "builds": []
+    }
+  ]
+}
