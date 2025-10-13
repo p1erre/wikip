@@ -22,6 +22,7 @@ downloads/
 output/
 cache/
 .cache/
+.test_videos/
 *.mp4
 *.m4a
 *.webm

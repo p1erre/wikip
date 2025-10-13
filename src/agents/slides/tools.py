@@ -19,6 +19,84 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 
+def _save_slide_group(slide_group: List[dict], slide_number: int, output_path: Path, unique_slides: list) -> None:
+    """
+    Save a group of progressive slides by keeping the most complete version (last frame).
+    Also tracks all intermediate states for potential OCR merging.
+    
+    Args:
+        slide_group: List of frame dictionaries in the group
+        slide_number: Slide number to assign
+        output_path: Directory to save slides
+        unique_slides: List to append slide info to
+    """
+    import cv2
+    
+    # Use the last frame (most complete version) as the main slide
+    last_frame_data = slide_group[-1]
+    
+    slide_filename = f"slide_{slide_number:03d}.jpg"
+    slide_path = output_path / slide_filename
+    cv2.imwrite(str(slide_path), last_frame_data["frame"])
+    
+    # Calculate timestamp from first frame in group
+    first_frame_index = slide_group[0]["frame_index"]
+    last_frame_index = last_frame_data["frame_index"]
+    timestamp = first_frame_index * 2.0  # Assuming 0.5 fps
+    
+    slide_info = {
+        "slide_number": slide_number,
+        "image_path": str(slide_path),
+        "timestamp": timestamp,
+        "frame_index": first_frame_index,
+        "num_progressive_states": len(slide_group),
+        "progressive_frames": [f["frame_index"] for f in slide_group],
+    }
+    
+    # Save intermediate states if there are multiple
+    if len(slide_group) > 1:
+        states_dir = output_path / f"slide_{slide_number:03d}_states"
+        states_dir.mkdir(exist_ok=True)
+        
+        for idx, frame_data in enumerate(slide_group):
+            state_filename = f"state_{idx+1:02d}.jpg"
+            state_path = states_dir / state_filename
+            cv2.imwrite(str(state_path), frame_data["frame"])
+        
+        slide_info["states_dir"] = str(states_dir)
+        logger.debug(f"Saved {len(slide_group)} progressive states for slide {slide_number}")
+    
+    unique_slides.append(slide_info)
+
+
+def _save_single_slide(frame, frame_index: int, slide_number: int, output_path: Path, unique_slides: list) -> None:
+    """
+    Save a single slide (non-progressive mode).
+    
+    Args:
+        frame: OpenCV frame to save
+        frame_index: Index of the frame
+        slide_number: Slide number to assign
+        output_path: Directory to save slides
+        unique_slides: List to append slide info to
+    """
+    import cv2
+    
+    slide_filename = f"slide_{slide_number:03d}.jpg"
+    slide_path = output_path / slide_filename
+    cv2.imwrite(str(slide_path), frame)
+    
+    timestamp = frame_index * 2.0  # Assuming 0.5 fps
+    
+    unique_slides.append({
+        "slide_number": slide_number,
+        "image_path": str(slide_path),
+        "timestamp": timestamp,
+        "frame_index": frame_index,
+        "num_progressive_states": 1,
+    })
+
+
 class FrameExtractionInput(BaseModel):
     """Input schema for frame extraction"""
     video_path: str = Field(description="Path to the video file")
@@ -119,37 +197,47 @@ def extract_video_frames(
 def detect_slide_changes(
     frame_paths: List[str],
     threshold: float = 0.85,
-    output_dir: str = "./slides"
+    output_dir: str = "./slides",
+    progressive_threshold: float = 0.95,
+    detect_progressive: bool = True
 ) -> dict[str, Any]:
     """
     Detect slide changes by comparing consecutive frames using OpenCV.
     
-    Identifies unique slides by detecting significant visual changes between frames.
+    Supports detection of progressive slides (slides with content appearing incrementally).
+    Uses two thresholds:
+    - threshold: Detects major slide changes (completely different slides)
+    - progressive_threshold: Detects minor changes (content additions on same slide)
     
     Args:
         frame_paths: List of paths to extracted frames
-        threshold: Similarity threshold (0-1). Lower = more sensitive to changes
+        threshold: Major change threshold (0-1). Lower = more sensitive
         output_dir: Directory to save unique slides
+        progressive_threshold: Minor change threshold for progressive content (0-1)
+        detect_progressive: If True, groups progressive slides and saves the most complete version
         
     Returns:
         Dictionary with unique slides and their timestamps
         
     Example:
         >>> frames = extract_video_frames("video.mp4")['frames']
-        >>> slides = detect_slide_changes(frames, threshold=0.85)
+        >>> slides = detect_slide_changes(frames, threshold=0.85, detect_progressive=True)
         >>> print(f"Found {len(slides['slides'])} unique slides")
     """
     logger.info(f"Detecting slide changes from {len(frame_paths)} frames")
+    logger.info(f"Progressive detection: {detect_progressive}, thresholds: major={threshold}, minor={progressive_threshold}")
     
     try:
         import cv2
         import numpy as np
+        from skimage.metrics import structural_similarity as ssim
         
         # Create output directory
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         
         unique_slides = []
+        current_slide_group = []  # Group of frames belonging to same progressive slide
         prev_frame = None
         slide_count = 0
         
@@ -163,38 +251,62 @@ def detect_slide_changes(
             # Convert to grayscale for comparison
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             
-            # Compare with previous frame
-            is_new_slide = False
+            # Determine change type
+            is_major_change = False
+            is_minor_change = False
+            
             if prev_frame is None:
-                is_new_slide = True  # First frame
+                is_major_change = True  # First frame
             else:
                 # Calculate structural similarity
-                from skimage.metrics import structural_similarity as ssim
                 similarity = ssim(prev_frame, gray)
                 
                 if similarity < threshold:
-                    is_new_slide = True
-                    logger.debug(f"Slide change detected at frame {i} (similarity: {similarity:.3f})")
+                    # Major change - completely different slide
+                    is_major_change = True
+                    logger.debug(f"Major slide change at frame {i} (similarity: {similarity:.3f})")
+                elif detect_progressive and similarity < progressive_threshold:
+                    # Minor change - progressive content on same slide
+                    is_minor_change = True
+                    logger.debug(f"Progressive content at frame {i} (similarity: {similarity:.3f})")
             
-            # Save unique slide
-            if is_new_slide:
-                slide_count += 1
-                slide_filename = f"slide_{slide_count:03d}.jpg"
-                slide_path = output_path / slide_filename
-                cv2.imwrite(str(slide_path), frame)
+            # Handle slide grouping
+            if is_major_change:
+                # Save previous slide group (if any)
+                if current_slide_group:
+                    slide_count += 1
+                    _save_slide_group(current_slide_group, slide_count, output_path, unique_slides)
                 
-                # Calculate timestamp (assuming frame number corresponds to time)
-                # This will be refined when we have video metadata
-                timestamp = i * 2.0  # Assuming 0.5 fps (1 frame per 2 seconds)
-                
-                unique_slides.append({
-                    "slide_number": slide_count,
-                    "image_path": str(slide_path),
-                    "timestamp": timestamp,
+                # Start new slide group
+                current_slide_group = [{
+                    "frame_path": frame_path,
+                    "frame": frame,
+                    "gray": gray,
                     "frame_index": i,
-                })
-                
+                }]
                 prev_frame = gray
+                
+            elif is_minor_change or not detect_progressive:
+                # Add to current slide group (progressive content)
+                if not detect_progressive and similarity < threshold:
+                    # Old behavior: treat as new slide
+                    slide_count += 1
+                    _save_single_slide(frame, i, slide_count, output_path, unique_slides)
+                    prev_frame = gray
+                else:
+                    # Add to group for progressive slides
+                    current_slide_group.append({
+                        "frame_path": frame_path,
+                        "frame": frame,
+                        "gray": gray,
+                        "frame_index": i,
+                    })
+                    prev_frame = gray
+        
+        # Save last slide group
+        if current_slide_group:
+            slide_count += 1
+            _save_slide_group(current_slide_group, slide_count, output_path, unique_slides)
         
         logger.info(f"Detected {len(unique_slides)} unique slides")
         
@@ -226,18 +338,23 @@ def extract_slides(
     video_path: str,
     output_dir: str = "./slides",
     fps: float = 0.5,
-    threshold: float = 0.85
+    threshold: float = 0.85,
+    progressive_threshold: float = 0.95,
+    detect_progressive: bool = True
 ) -> dict[str, Any]:
     """
     Complete workflow: Extract frames and detect unique slides from video.
     
     This is a convenience function that combines frame extraction and slide detection.
+    Supports progressive slides (slides with content appearing incrementally).
     
     Args:
         video_path: Path to the video file
         output_dir: Directory to save slides
         fps: Frames per second to extract
-        threshold: Similarity threshold for slide change detection
+        threshold: Major slide change threshold (0-1)
+        progressive_threshold: Minor change threshold for progressive content (0-1)
+        detect_progressive: If True, groups progressive slides and saves most complete version
         
     Returns:
         Dictionary with unique slides and metadata
@@ -260,7 +377,9 @@ def extract_slides(
     slides_result = detect_slide_changes.func(
         frames_result["frames"],
         threshold,
-        output_dir
+        output_dir,
+        progressive_threshold,
+        detect_progressive
     )
     
     if not slides_result.get("success"):
