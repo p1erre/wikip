@@ -35,6 +35,11 @@ dependencies = [
     "yt-dlp>=2024.0.0",
     "youtube-transcript-api>=0.6.0",
     "ffmpeg-python>=0.2.0",
+    # Image Processing & OCR
+    "opencv-python>=4.8.0",
+    "scikit-image>=0.21.0",
+    "pytesseract>=0.3.10",
+    "pillow>=10.0.0",
     # Utilities
     "python-dotenv>=1.0.0",
     "tenacity>=8.2.0",
@@ -123,5 +128,9 @@ module = [
     "yt_dlp.*",
     "ffmpeg.*",
     "youtube_transcript_api.*",
+    "cv2.*",
+    "pytesseract.*",
+    "PIL.*",
+    "skimage.*",
 ]
 ignore_missing_imports = true
