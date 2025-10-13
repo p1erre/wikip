@@ -137,6 +137,7 @@ video-to-book/
 │   ├── ARCHITECTURE.md         # System architecture
 │   ├── QUICK_START.md          # 5-minute guide
 │   ├── PROJECT_SUMMARY.md      # Overview
+│   ├── ROBUST_SLIDE_EXTRACTION.md  # Slide extraction guide ⭐
 │   └── INDEX.md                # Navigation guide
 │
 ├── src/
@@ -149,14 +150,18 @@ video-to-book/
     ├── 01_basic_agent.py       # Simple agent example
     ├── 02_custom_graph.py      # Custom workflow
     ├── 03_streaming_output.py  # Streaming results
-    └── 04_complete_workflow.py # Production pattern
+    ├── 04_complete_workflow.py # Production pattern
+    ├── 08_extract_slides.py    # Basic slide extraction
+    └── 09_robust_slide_extraction.py  # Advanced slide extraction ⭐
 ```
 
 ## 🛠️ Available Tools
 
 The video agent has access to these tools:
 
-### `extract_video_id_from_url`
+### Video Analysis Tools
+
+#### `extract_video_id_from_url`
 Extract video ID from any YouTube URL format.
 
 ```python
@@ -164,7 +169,7 @@ result = extract_video_id_from_url("https://youtube.com/watch?v=abc123")
 # Returns: {"success": True, "video_id": "abc123"}
 ```
 
-### `get_video_metadata`
+#### `get_video_metadata`
 Get video information without downloading.
 
 ```python
@@ -172,7 +177,7 @@ metadata = get_video_metadata("abc123")
 # Returns: title, duration, channel, description, etc.
 ```
 
-### `get_youtube_transcript`
+#### `get_youtube_transcript`
 Fetch existing captions/transcript.
 
 ```python
@@ -180,12 +185,63 @@ transcript = get_youtube_transcript("abc123")
 # Returns: segments with text and timestamps
 ```
 
-### `download_youtube_content`
+#### `download_youtube_content`
 Download video or audio files.
 
 ```python
 result = download_youtube_content("abc123", download_video=False)
 # Downloads audio only
+```
+
+### Slide Extraction Tools
+
+#### `extract_slides_robust` ⭐ NEW
+Advanced slide extraction with progressive reveal detection.
+
+```python
+from src.agents.slides import extract_slides_robust
+
+result = extract_slides_robust.func(
+    video_path="presentation.mp4",
+    output_dir="./slides",
+    fps_sample=2.0,
+    build_policy="build_collapse",  # or "build_preserve"
+    presenter_roi=(0.72, 0.72, 0.98, 0.98),  # Optional: mask presenter
+)
+# Returns: unique slides with deduplication and build detection
+```
+
+**Features:**
+- 🎯 Progressive reveal detection (builds)
+- 🎭 Motion masking for presenter movements
+- 🔄 Global deduplication across video
+- ⚡ Fast perceptual hashing + SSIM verification
+- 📊 Two build policies (collapse/preserve)
+
+See [docs/ROBUST_SLIDE_EXTRACTION.md](docs/ROBUST_SLIDE_EXTRACTION.md) for details.
+
+#### `extract_slides`
+Basic slide extraction using frame comparison.
+
+```python
+from src.agents.slides import extract_slides
+
+result = extract_slides.func(
+    video_path="video.mp4",
+    output_dir="./slides",
+    fps=0.5,
+    threshold=0.85
+)
+```
+
+#### `analyze_slide_content`
+Extract text from slides using OCR.
+
+```python
+from src.agents.slides import analyze_slide_content
+
+content = analyze_slide_content.func("slide_001.jpg")
+# Returns: extracted text and confidence
 ```
 
 ## 🎓 Understanding the Video Agent

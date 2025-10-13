@@ -10,7 +10,7 @@ Tools for extracting slides from presentation videos using:
 import logging
 import subprocess
 from pathlib import Path
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional, Tuple
 import json
 
 from langchain_core.tools import tool
@@ -524,6 +524,148 @@ def align_slides_with_transcript(
         }
 
 
+@tool
+def extract_slides_robust(
+    video_path: str,
+    output_dir: str = "./slides",
+    fps_sample: float = 2.0,
+    build_policy: str = "build_collapse",
+    presenter_roi: Optional[Tuple[float, float, float, float]] = None,
+    save_keyframes: bool = True,
+) -> dict[str, Any]:
+    """
+    Extract unique slides using robust algorithm with progressive reveal detection.
+    
+    This is an advanced slide extraction method that:
+    - Handles progressive reveals (builds) intelligently
+    - Uses motion masking to ignore presenter movements
+    - Performs global deduplication across the entire video
+    - Supports perceptual hashing and SSIM verification
+    
+    Args:
+        video_path: Path to the video file
+        output_dir: Directory to save slides and metadata
+        fps_sample: Frames per second to sample (default: 2.0)
+        build_policy: How to handle progressive reveals:
+            - "build_collapse": Keep final fully revealed slide (default)
+            - "build_preserve": Create sub-slides for each build step
+        presenter_roi: Optional region to mask presenter (x1, y1, x2, y2) in [0,1]
+            Example: (0.72, 0.72, 0.98, 0.98) for bottom-right corner
+        save_keyframes: Whether to save slide images to disk
+        
+    Returns:
+        Dictionary with segments, clusters, and metadata
+        
+    Example:
+        >>> result = extract_slides_robust(
+        ...     "presentation.mp4",
+        ...     output_dir="./slides",
+        ...     build_policy="build_collapse",
+        ...     presenter_roi=(0.72, 0.72, 0.98, 0.98)
+        ... )
+        >>> print(f"Found {len(result['clusters'])} unique slides")
+        >>> print(f"Total segments: {len(result['segments'])}")
+    """
+    logger.info(f"Starting robust slide extraction from: {video_path}")
+    logger.info(f"Build policy: {build_policy}, FPS: {fps_sample}")
+    
+    try:
+        from src.agents.slides.slideseg import SlideDeduplicator
+        import cv2
+        
+        # Create output directory
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize deduplicator
+        dedup = SlideDeduplicator(
+            fps_sample=fps_sample,
+            build_policy=build_policy,
+            presenter_roi=presenter_roi,
+        )
+        
+        # Process video
+        result = dedup.process_video(video_path)
+        
+        # Save keyframes if requested
+        slides = []
+        if save_keyframes:
+            for cid, cluster in enumerate(result["clusters"]):
+                rep_idx = cluster["rep_idx"]
+                seg_data = result["segments"][rep_idx]
+                
+                # Get the actual segment object to access keyframe
+                segment = dedup.segments[rep_idx]
+                
+                # Save keyframe (use original color frame, not processed grayscale)
+                slide_filename = f"slide_{cid+1:03d}.jpg"
+                slide_path = output_path / slide_filename
+                cv2.imwrite(str(slide_path), segment.keyframe_original)
+                
+                # Build slide info
+                slide_info = {
+                    "slide_number": cid + 1,
+                    "cluster_id": cid,
+                    "image_path": str(slide_path),
+                    "timestamp": seg_data["start"],
+                    "duration": seg_data["end"] - seg_data["start"],
+                    "num_occurrences": len(cluster["members"]),
+                    "occurrences": [
+                        {
+                            "segment_idx": idx,
+                            "start": result["segments"][idx]["start"],
+                            "end": result["segments"][idx]["end"],
+                        }
+                        for idx in cluster["members"]
+                    ],
+                    "num_builds": len(seg_data.get("builds", [])),
+                    "builds": seg_data.get("builds", []),
+                }
+                slides.append(slide_info)
+        
+        # Save metadata
+        metadata_path = output_path / "slides_metadata.json"
+        with open(metadata_path, 'w') as f:
+            json.dump({
+                "video_path": video_path,
+                "build_policy": build_policy,
+                "fps_sample": fps_sample,
+                "num_unique_slides": len(result["clusters"]),
+                "num_segments": len(result["segments"]),
+                "slides": slides,
+            }, f, indent=2)
+        
+        logger.info(f"Extracted {len(result['clusters'])} unique slides")
+        logger.info(f"Total segments: {len(result['segments'])}")
+        
+        return {
+            "success": True,
+            "video_path": video_path,
+            "num_unique_slides": len(result["clusters"]),
+            "num_segments": len(result["segments"]),
+            "slides": slides,
+            "clusters": result["clusters"],
+            "segments": result["segments"],
+            "output_dir": output_dir,
+            "metadata_path": str(metadata_path),
+        }
+        
+    except ImportError as e:
+        error_msg = f"Missing required library: {str(e)}. Install with: pip install imagehash"
+        logger.error(error_msg)
+        return {
+            "success": False,
+            "error": error_msg
+        }
+    except Exception as e:
+        error_msg = f"Failed to extract slides: {str(e)}"
+        logger.error(error_msg)
+        return {
+            "success": False,
+            "error": error_msg
+        }
+
+
 def get_slides_tools() -> list:
     """
     Get all slide extraction tools.
@@ -535,6 +677,7 @@ def get_slides_tools() -> list:
         extract_video_frames,
         detect_slide_changes,
         extract_slides,
+        extract_slides_robust,
         analyze_slide_content,
         align_slides_with_transcript,
     ]

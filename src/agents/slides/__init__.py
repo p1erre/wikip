@@ -23,6 +23,7 @@ from src.agents.slides.tools import (
     extract_video_frames,
     detect_slide_changes,
     extract_slides,
+    extract_slides_robust,
     analyze_slide_content,
     align_slides_with_transcript,
 )
@@ -31,6 +32,7 @@ __all__ = [
     "extract_video_frames",
     "detect_slide_changes",
     "extract_slides",
+    "extract_slides_robust",
     "analyze_slide_content",
     "align_slides_with_transcript",
 ]
