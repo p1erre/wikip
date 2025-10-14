@@ -334,7 +334,8 @@ def generate_booklet(
         try:
             transcript_result = get_youtube_transcript.func(video_id)
             if transcript_result.get('success'):
-                transcript = transcript_result['transcript']
+                # The result IS the transcript (has 'segments' key)
+                transcript = transcript_result
                 cache.save_transcript(video_id, transcript)
                 num_segments = len(transcript.get('segments', []))
                 logger.info(f"   ✅ Fetched transcript ({num_segments} segments)")
