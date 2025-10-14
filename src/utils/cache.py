@@ -345,6 +345,86 @@ class VideoCache:
             json.dump(data, f, indent=2)
     
     # ========================================================================
+    # BOOKLET CACHE
+    # ========================================================================
+    
+    def get_booklet(self, video_id: str, model_key: str) -> Optional[dict[str, Any]]:
+        """
+        Get cached booklet content for a video.
+        
+        Args:
+            video_id: YouTube video ID or video identifier
+            model_key: Model identifier (e.g., "openai_gpt-4o")
+            
+        Returns:
+            Booklet data dict if cached, None otherwise
+        """
+        video_dir = self._get_video_dir(video_id)
+        booklets_dir = video_dir / "booklets"
+        cache_file = booklets_dir / f"{model_key}.md"
+        
+        if cache_file.exists():
+            logger.info(f"Loading booklet from cache: {video_id}/{model_key}")
+            content = cache_file.read_text(encoding='utf-8')
+            
+            # Parse simple frontmatter (key: value format)
+            if content.startswith('---\n'):
+                parts = content.split('\n---\n', 1)
+                if len(parts) == 2:
+                    frontmatter_text = parts[0].replace('---\n', '', 1)
+                    booklet_content = parts[1].strip()
+                    
+                    # Parse simple key: value pairs
+                    metadata = {}
+                    for line in frontmatter_text.strip().split('\n'):
+                        if ':' in line:
+                            key, value = line.split(':', 1)
+                            metadata[key.strip()] = value.strip()
+                    
+                    return {
+                        'content': booklet_content,
+                        **metadata
+                    }
+            
+            # Fallback: no frontmatter
+            return {'content': content}
+        
+        return None
+    
+    def save_booklet(self, video_id: str, model_key: str, booklet_data: dict[str, Any]) -> None:
+        """
+        Save booklet content to cache as markdown with simple frontmatter.
+        
+        Args:
+            video_id: YouTube video ID or video identifier
+            model_key: Model identifier (e.g., "openai_gpt-4o")
+            booklet_data: Booklet data dict with 'content', 'model', etc.
+        """
+        from datetime import datetime
+        
+        video_dir = self._get_video_dir(video_id)
+        booklets_dir = video_dir / "booklets"
+        booklets_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = booklets_dir / f"{model_key}.md"
+        
+        # Extract content and metadata
+        content = booklet_data.pop('content')
+        
+        # Add timestamp
+        booklet_data['generated_at'] = datetime.now().isoformat()
+        
+        # Build simple frontmatter (key: value format)
+        frontmatter_lines = []
+        for key, value in booklet_data.items():
+            frontmatter_lines.append(f"{key}: {value}")
+        
+        frontmatter = '\n'.join(frontmatter_lines)
+        markdown = f"---\n{frontmatter}\n---\n\n{content}"
+        
+        logger.info(f"Saving booklet to cache: {video_id}/{model_key}")
+        cache_file.write_text(markdown, encoding='utf-8')
+    
+    # ========================================================================
     # CACHE MANAGEMENT
     # ========================================================================
     

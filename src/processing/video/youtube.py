@@ -211,21 +211,17 @@ def get_youtube_transcript(video_id: str) -> dict[str, Any]:
         from youtube_transcript_api import YouTubeTranscriptApi
         
         # Try to get transcript (prefers manual captions over auto-generated)
-        api = YouTubeTranscriptApi()
-        transcript_data = api.fetch(video_id)
-        
-        # The API returns a FetchedTranscriptSnippet object with a 'snippets' attribute
-        transcript_list = transcript_data.snippets if hasattr(transcript_data, 'snippets') else transcript_data
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
         
         # Format the transcript segments
         segments = [
             {
-                "text": snippet.text if hasattr(snippet, 'text') else snippet["text"],
-                "start": snippet.start if hasattr(snippet, 'start') else snippet["start"],
-                "duration": snippet.duration if hasattr(snippet, 'duration') else snippet["duration"],
-                "end": (snippet.start + snippet.duration) if hasattr(snippet, 'start') else (snippet["start"] + snippet["duration"])
+                "text": segment["text"],
+                "start": segment["start"],
+                "duration": segment["duration"],
+                "end": segment["start"] + segment["duration"]
             }
-            for snippet in transcript_list
+            for segment in transcript_list
         ]
         
         logger.info(f"Successfully fetched {len(segments)} transcript segments")
@@ -235,8 +231,12 @@ def get_youtube_transcript(video_id: str) -> dict[str, Any]:
             "video_id": video_id,
             "num_segments": len(segments),
             "segments": segments,
-            "total_duration": segments[-1]["end"] if segments else 0,
-            "source": "youtube"  # Decorator uses this for multi-source caching
+            "duration": segments[-1]["end"] if segments else 0,
+            "source": "youtube",  # Decorator uses this for multi-source caching
+            "transcript": {  # Add this for backward compatibility
+                "segments": segments,
+                "source": "youtube"
+            }
         }
         
     except Exception as e:
