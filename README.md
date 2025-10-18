@@ -1,27 +1,24 @@
-# Video-to-Book: LangGraph Tutorial Project
+# Video-to-Book Pipeline
 
-A hands-on tutorial for learning **LangGraph** by building a real-world video analysis agent.
+Convert YouTube videos into comprehensive educational booklets using AI.
 
-## 🎯 What You'll Learn
+## 🎯 Features
 
-This project teaches you LangGraph through a practical example: analyzing YouTube videos with AI agents.
-
-### Core Concepts Covered
-
-- ✅ **LangGraph Basics**: Nodes, edges, and state management
-- ✅ **ReAct Pattern**: How agents reason and act
-- ✅ **Tool Calling**: Giving agents capabilities
-- ✅ **Custom Workflows**: Building graphs from scratch
-- ✅ **Streaming**: Real-time progress updates
-- ✅ **Best Practices**: Production-ready patterns
+- **YouTube Processing**: Extract transcripts and metadata automatically
+- **Slide Extraction**: Detect and extract unique slides from presentation videos
+- **Vision Analysis**: Analyze slides with vision LLMs (Gemini, GPT-4V, OpenRouter)
+- **Smart Chapter Generation**: Create chapters semantically or from video metadata
+- **Context-Aware Content**: Sequential generation maintains consistency across chapters
+- **Intelligent Caching**: Avoid reprocessing with granular cache control
+- **Multiple LLM Providers**: OpenAI, Anthropic, OpenRouter support
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
 - Python 3.11+
-- OpenAI API key (for the agent examples)
-- FFmpeg (optional, for video processing)
+- API keys for your chosen LLM provider (OpenAI, Anthropic, or OpenRouter)
+- FFmpeg (required for video processing)
 
 ### Installation
 
@@ -57,367 +54,287 @@ cp .env.example .env
 # Edit .env and add your OPENAI_API_KEY
 ```
 
-### Run Your First Example
+### Quick Start - CLI
+
+**Simplest way to use:**
 
 ```bash
-# With uv
-uv run python examples/01_basic_agent.py
+# Generate booklet from YouTube video
+./vtb generate "https://youtube.com/watch?v=VIDEO_ID"
 
-# Or activate the environment first
-source .venv/bin/activate  # uv creates .venv by default
-python examples/01_basic_agent.py
-
-# More examples
-uv run python examples/02_custom_graph.py
-uv run python examples/03_streaming_output.py
+# Or using uv directly
+uv run python -m src.cli generate "https://youtube.com/watch?v=VIDEO_ID"
 ```
 
-## 📚 Learning Path
+**More options:**
 
-### 1. Start with the Tutorial
+```bash
+# Use different model
+./vtb generate VIDEO_URL --model gpt-4o-mini
 
-Read **[LANGGRAPH_TUTORIAL.md](docs/LANGGRAPH_TUTORIAL.md)** - A comprehensive guide covering:
-- What is LangGraph and why use it
-- Core concepts (state, nodes, edges, graphs)
-- Building your first agent
-- Tools and function calling
-- Creating custom workflows
+# Parallel mode (faster)
+./vtb generate VIDEO_URL --parallel
 
-### 2. Explore the Examples
+# Process video with vision analysis
+./vtb process VIDEO_URL
 
-Work through the examples in order:
-
-#### **Example 1: Basic Agent** (`examples/01_basic_agent.py`)
-- Uses pre-built ReAct agent
-- Shows automatic tool calling
-- Demonstrates message flow
-
-#### **Example 2: Custom Graph** (`examples/02_custom_graph.py`)
-- Build a graph from scratch
-- Define custom nodes
-- Implement conditional routing
-- No LLM required!
-
-#### **Example 3: Streaming** (`examples/03_streaming_output.py`)
-- Real-time progress updates
-- Stream intermediate results
-- Better user experience
-
-### 3. Study the Implementation
-
-Dive into the source code:
-
-```
-src/
-├── tools/
-│   └── youtube_tools.py    # Tools agents can use
-└── agents/
-    └── video_agent.py      # Agent implementation
+# Check cache
+./vtb cache-info
 ```
 
-### 4. Experiment and Extend
+See `CLI_GUIDE.md` for complete CLI documentation.
 
-Try modifying the code:
-- Add new tools
-- Change the workflow
-- Implement error handling
-- Add more agents
+### Python API
+
+```python
+from src.pipeline import generate_booklet
+
+# Generate a booklet from a YouTube video
+result = generate_booklet(
+    input_source="https://www.youtube.com/watch?v=VIDEO_ID",
+    model="gpt-4o",
+    provider="openai",
+    use_chapters=True,    # Chapter-based generation
+    parallel=False,       # Sequential with context (recommended)
+)
+
+if result['success']:
+    # Save the booklet
+    with open('booklet.md', 'w') as f:
+        f.write(result['booklet'])
+    print(f"✅ Generated {result.get('num_sections')} sections")
+```
+
+See `example_usage.py` for more Python examples.
+
+## 📖 Usage Examples
+
+### 1. Generate Booklet (Simple)
+
+```python
+from src.pipeline import generate_booklet
+
+result = generate_booklet("https://www.youtube.com/watch?v=VIDEO_ID")
+print(result['booklet'])
+```
+
+### 2. Process Video with Vision Analysis
+
+```python
+from src.pipeline import process_video
+
+result = process_video(
+    input_source="https://www.youtube.com/watch?v=VIDEO_ID",
+    skip_vision=False,
+    vision_provider="google",
+    vision_model="gemini-1.5-flash"
+)
+
+print(f"Extracted {result['slides']['num_unique_slides']} slides")
+print(f"Analyzed {len(result['vision_analysis'])} slides")
+```
+
+### 3. Cache Control
+
+```python
+# Regenerate only the booklet (keep cached transcript)
+result = generate_booklet(
+    input_source="VIDEO_URL",
+    use_cached_transcript=True,
+    use_cached_booklet=False,  # Force regeneration
+    temperature=0.7  # Try different temperature
+)
+```
+
+### 4. Sequential vs Parallel Generation
+
+```python
+# Sequential (recommended) - maintains context between chapters
+result = generate_booklet(
+    input_source="VIDEO_URL",
+    parallel=False,  # Sequential with context
+    use_chapters=True
+)
+
+# Parallel - faster but no context sharing
+result = generate_booklet(
+    input_source="VIDEO_URL",
+    parallel=True,  # 5x faster
+    use_chapters=True
+)
+```
+
+See `example_usage.py` for complete examples.
 
 ## 🏗️ Project Structure
 
 ```
 video-to-book/
-├── README.md               # This file
-├── requirements.txt        # Dependencies
-├── .env.example           # Environment template
+├── README.md                    # This file
+├── pyproject.toml              # Dependencies
+├── .env.example                # Environment template
+├── example_usage.py            # Usage examples
+├── test_pipeline.py            # Import verification
 │
-├── docs/                   # Documentation
-│   ├── LANGGRAPH_TUTORIAL.md   # Comprehensive tutorial
-│   ├── DESIGN.md               # Framework comparison
-│   ├── ARCHITECTURE.md         # System architecture
-│   ├── QUICK_START.md          # 5-minute guide
-│   ├── PROJECT_SUMMARY.md      # Overview
-│   ├── ROBUST_SLIDE_EXTRACTION.md  # Slide extraction guide ⭐
-│   └── INDEX.md                # Navigation guide
-│
-├── src/
-│   ├── tools/
-│   │   └── youtube_tools.py    # YouTube interaction tools
-│   └── agents/
-│       └── video_agent.py      # Video analysis agent
-│
-└── examples/
-    ├── 01_basic_agent.py       # Simple agent example
-    ├── 02_custom_graph.py      # Custom workflow
-    ├── 03_streaming_output.py  # Streaming results
-    ├── 04_complete_workflow.py # Production pattern
-    ├── 08_extract_slides.py    # Basic slide extraction
-    └── 09_robust_slide_extraction.py  # Advanced slide extraction ⭐
+└── src/
+    ├── pipeline.py             # Main API
+    ├── processing/
+    │   ├── content/            # Content generation
+    │   │   ├── chapters.py     # Chapter-based generation
+    │   │   └── generation.py   # Single-pass generation
+    │   ├── slides/             # Slide extraction
+    │   │   ├── extraction.py   # Slide detection
+    │   │   └── segmentation.py # Deduplication
+    │   ├── video/              # YouTube operations
+    │   │   └── youtube.py      # Transcript/metadata
+    │   └── vision/             # Vision analysis
+    │       └── analyzer.py     # Vision LLM integration
+    └── utils/
+        ├── cache.py            # Caching system
+        ├── decorators.py       # Cache decorators
+        └── video_input.py      # Input normalization
 ```
 
-## 🛠️ Available Tools
+## 🔑 API Reference
 
-The video agent has access to these tools:
+### Main Functions
 
-### Video Analysis Tools
+#### `generate_booklet()`
+Generate educational booklet from YouTube video.
 
-#### `extract_video_id_from_url`
-Extract video ID from any YouTube URL format.
+**Parameters:**
+- `input_source` (str): YouTube URL or video ID
+- `model` (str): LLM model (default: "gpt-4o")
+- `provider` (str): LLM provider ("openai", "anthropic", "openrouter")
+- `temperature` (float): Generation temperature (default: 0.5)
+- `use_chapters` (bool): Use chapter-based generation (default: True)
+- `parallel` (bool): Parallel processing (default: False, sequential recommended)
+- `words_per_section` (int): Target words per section (default: 2000)
+- `use_cached_transcript` (bool): Use cached transcript (default: True)
+- `use_cached_metadata` (bool): Use cached metadata (default: True)
+- `use_cached_booklet` (bool): Use cached booklet (default: True)
 
-```python
-result = extract_video_id_from_url("https://youtube.com/watch?v=abc123")
-# Returns: {"success": True, "video_id": "abc123"}
-```
+**Returns:** Dict with `success`, `booklet`, `video_id`, `video_title`, etc.
 
-#### `get_video_metadata`
-Get video information without downloading.
+#### `process_video()`
+Complete video processing with slides and vision analysis.
 
-```python
-metadata = get_video_metadata("abc123")
-# Returns: title, duration, channel, description, etc.
-```
+**Parameters:**
+- `input_source` (str): YouTube URL/ID or local video file
+- `force_reprocess` (bool): Skip cache (default: False)
+- `skip_vision` (bool): Skip vision analysis (default: False)
+- `vision_provider` (str): Vision provider ("google", "openai", "openrouter")
+- `vision_model` (str): Vision model name
 
-#### `get_youtube_transcript`
-Fetch existing captions/transcript.
+**Returns:** Dict with `slides`, `transcript`, `vision_analysis`, etc.
 
-```python
-transcript = get_youtube_transcript("abc123")
-# Returns: segments with text and timestamps
-```
+## ⚙️ Configuration
 
-#### `download_youtube_content`
-Download video or audio files.
+### Environment Variables
 
-```python
-result = download_youtube_content("abc123", download_video=False)
-# Downloads audio only
-```
-
-### Slide Extraction Tools
-
-#### `extract_slides_robust` ⭐ NEW
-Advanced slide extraction with progressive reveal detection.
-
-```python
-from src.agents.slides import extract_slides_robust
-
-result = extract_slides_robust.func(
-    video_path="presentation.mp4",
-    output_dir="./slides",
-    fps_sample=2.0,
-    build_policy="build_collapse",  # or "build_preserve"
-    presenter_roi=(0.72, 0.72, 0.98, 0.98),  # Optional: mask presenter
-)
-# Returns: unique slides with deduplication and build detection
-```
-
-**Features:**
-- 🎯 Progressive reveal detection (builds)
-- 🎭 Motion masking for presenter movements
-- 🔄 Global deduplication across video
-- ⚡ Fast perceptual hashing + SSIM verification
-- 📊 Two build policies (collapse/preserve)
-
-See [docs/ROBUST_SLIDE_EXTRACTION.md](docs/ROBUST_SLIDE_EXTRACTION.md) for details.
-
-#### `extract_slides`
-Basic slide extraction using frame comparison.
-
-```python
-from src.agents.slides import extract_slides
-
-result = extract_slides.func(
-    video_path="video.mp4",
-    output_dir="./slides",
-    fps=0.5,
-    threshold=0.85
-)
-```
-
-#### `analyze_slide_content`
-Extract text from slides using OCR.
-
-```python
-from src.agents.slides import analyze_slide_content
-
-content = analyze_slide_content.func("slide_001.jpg")
-# Returns: extracted text and confidence
-```
-
-## 🎓 Understanding the Video Agent
-
-### How It Works
-
-```
-User Request
-    ↓
-Agent receives message
-    ↓
-Agent decides: "I need to extract the video ID"
-    ↓
-Calls extract_video_id_from_url tool
-    ↓
-Gets result: {"video_id": "abc123"}
-    ↓
-Agent decides: "Now I'll get metadata"
-    ↓
-Calls get_video_metadata tool
-    ↓
-Gets result: {title, duration, ...}
-    ↓
-Agent decides: "Let me get the transcript"
-    ↓
-Calls get_youtube_transcript tool
-    ↓
-Gets result: {segments: [...]}
-    ↓
-Agent responds to user with summary
-```
-
-### The ReAct Pattern
-
-**Re**asoning + **Act**ing:
-
-1. **Thought**: "I need to get the video ID first"
-2. **Action**: Call `extract_video_id_from_url`
-3. **Observation**: Got video ID "abc123"
-4. **Thought**: "Now I can get metadata"
-5. **Action**: Call `get_video_metadata`
-6. ... continues until task complete
-
-## 📖 Code Examples
-
-### Using the Agent
-
-```python
-from src.agents.video_agent import create_video_agent
-from langchain_core.messages import HumanMessage
-
-# Create agent
-agent = create_video_agent()
-
-# Send request
-result = agent.invoke({
-    "messages": [
-        HumanMessage(content="Analyze https://youtube.com/watch?v=abc123")
-    ]
-})
-
-# Get response
-print(result["messages"][-1].content)
-```
-
-### Building a Custom Graph
-
-```python
-from langgraph.graph import StateGraph, END
-from typing import TypedDict
-
-# Define state
-class MyState(TypedDict):
-    input: str
-    output: str
-
-# Create nodes
-def process_node(state: MyState) -> MyState:
-    return {**state, "output": state["input"].upper()}
-
-# Build graph
-graph = StateGraph(MyState)
-graph.add_node("process", process_node)
-graph.set_entry_point("process")
-graph.add_edge("process", END)
-
-# Run
-app = graph.compile()
-result = app.invoke({"input": "hello"})
-print(result["output"])  # "HELLO"
-```
-
-## 🔧 Configuration
-
-Edit `.env` file:
+Create a `.env` file with your API keys:
 
 ```bash
-# Required: OpenAI API key
+# Required for content generation
 OPENAI_API_KEY=sk-...
-
-# Optional: Anthropic for Claude models
+# Or use Anthropic
 ANTHROPIC_API_KEY=sk-ant-...
+# Or use OpenRouter
+OPENROUTER_API_KEY=sk-or-...
 
-# Model selection
-LLM_PROVIDER=openai
-OPENAI_MODEL=gpt-4-turbo-preview
+# Optional for vision analysis
+GOOGLE_API_KEY=...  # For Gemini vision
 ```
 
-## 🧪 Testing
+### LLM Providers
 
-```bash
-# Run all examples
-python examples/01_basic_agent.py
-python examples/02_custom_graph.py
-python examples/03_streaming_output.py
+**OpenAI** (default):
+- Models: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`
+- Best for: General purpose, vision analysis
 
-# Or run the agent directly
-python -m src.agents.video_agent
-```
+**Anthropic**:
+- Models: `claude-3-5-sonnet-20241022`, `claude-3-opus-20240229`
+- Best for: Long-form content, detailed analysis
 
-## 💡 Tips for Learning
+**OpenRouter**:
+- Access to multiple models through one API
+- Best for: Flexibility, cost optimization
 
-1. **Start Simple**: Run example 1 first, understand what happens
-2. **Read the Code**: The code is heavily commented for learning
-3. **Experiment**: Change prompts, add print statements, break things!
-4. **Check Logs**: The agent logs its decisions
-5. **Use the Tutorial**: Refer to docs/LANGGRAPH_TUTORIAL.md for concepts
+## 💡 Tips & Best Practices
+
+### Content Generation
+
+1. **Use Sequential Mode** for better coherence:
+   ```python
+   generate_booklet(url, parallel=False)  # Maintains context
+   ```
+
+2. **Adjust Temperature** based on needs:
+   - `0.3-0.5`: Factual, consistent (recommended)
+   - `0.6-0.8`: More creative, varied
+
+3. **Cache Control** for iterations:
+   ```python
+   # Keep transcript, regenerate booklet
+   generate_booklet(url, use_cached_booklet=False)
+   ```
+
+### Slide Extraction
+
+1. **Use `extract_slides_robust`** for presentations
+2. **Adjust FPS** based on video type:
+   - Presentations: `fps_sample=2.0`
+   - Fast-paced: `fps_sample=5.0`
+
+### Vision Analysis
+
+1. **Skip vision** if not needed (saves time/money):
+   ```python
+   process_video(url, skip_vision=True)
+   ```
+
+2. **Use Gemini** for cost-effective vision analysis:
+   ```python
+   process_video(url, vision_provider="google", vision_model="gemini-1.5-flash")
+   ```
 
 ## 🐛 Troubleshooting
 
-### "OPENAI_API_KEY not found"
-- Create a `.env` file from `.env.example`
-- Add your API key: `OPENAI_API_KEY=sk-...`
+### Common Issues
 
-### "No module named 'yt_dlp'"
-- Install dependencies: `pip install -r requirements.txt`
+**Import errors after refactoring:**
+```bash
+python test_pipeline.py  # Verify all imports work
+```
 
-### "Could not get transcript"
-- Not all videos have captions
-- This is expected behavior, not an error
-- The agent will suggest downloading instead
+**No transcript available:**
+- Video may not have captions
+- Try a different video or use Whisper for local transcription
 
-### "FFmpeg not found"
-- Only needed for video downloads
-- Install: `brew install ffmpeg` (Mac) or see [ffmpeg.org](https://ffmpeg.org)
+**Vision analysis fails:**
+- Check API key is set correctly
+- Verify provider/model combination is valid
 
-## 📚 Additional Resources
+**Cache issues:**
+```python
+from src.pipeline import clear_video_cache
+clear_video_cache("VIDEO_ID")  # Clear specific video
+```
 
-- **[LangGraph Documentation](https://langchain-ai.github.io/langgraph/)**: Official docs
-- **[LANGGRAPH_TUTORIAL.md](docs/LANGGRAPH_TUTORIAL.md)**: Our comprehensive tutorial
-- **[DESIGN.md](docs/DESIGN.md)**: Framework comparison and architecture decisions
-- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**: System architecture deep dive
-- **[INDEX.md](docs/INDEX.md)**: Complete documentation guide
+## 📝 Recent Changes
 
-## 🎯 Next Steps
+See `REFACTORING_SUMMARY.md` for details on the recent simplification.
 
-After completing this tutorial, you can:
+**Key improvements:**
+- ✅ Simplified from 90+ files to 17 core modules
+- ✅ Removed unnecessary agent abstractions
+- ✅ Direct processing pipeline API
+- ✅ All functionality preserved
 
-1. **Add More Agents**: Frame extraction, text generation
-2. **Implement Checkpointing**: Save and resume workflows
-3. **Add Human-in-the-Loop**: Require approval at key steps
-4. **Build a UI**: Create a web interface
-5. **Deploy**: Put your agent in production
+## 📄 License
+
+MIT
 
 ## 🤝 Contributing
 
-This is a learning project! Feel free to:
-- Add more examples
-- Improve documentation
-- Fix bugs
-- Share your extensions
-
-## 📝 License
-
-MIT License - use this for learning and projects!
-
----
-
-**Ready to learn LangGraph?** Start with [QUICK_START.md](docs/QUICK_START.md) or dive into [LANGGRAPH_TUTORIAL.md](docs/LANGGRAPH_TUTORIAL.md)!
+This is a learning/personal project. Feel free to fork and adapt for your needs!
