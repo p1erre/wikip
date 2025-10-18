@@ -232,10 +232,14 @@ def generate_booklet(
     input_source: str,
     model: str = "gpt-4o",
     provider: str = "openai",
-    temperature: float = 0.7,
-    force_reprocess: bool = False,
+    temperature: float = 0.5,
     use_chapters: bool = True,
     words_per_section: int = 2000,
+    parallel: bool = False,
+    # Cache control (explicit and clear)
+    use_cached_transcript: bool = True,
+    use_cached_metadata: bool = True,
+    use_cached_booklet: bool = True,
     cache_dir: str = ".cache"
 ) -> Dict[str, Any]:
     """
@@ -248,19 +252,24 @@ def generate_booklet(
     4. Return booklet content
     
     Chapter-based generation (recommended):
-    - Processes each chapter/section independently
+    - Processes each chapter/section with context from previous chapters
     - Produces more detailed, comprehensive output
     - Better for long videos (30+ minutes)
     - Each section gets ~2000 words of detailed content
+    - Maintains concept continuity and consistent terminology
     
     Args:
         input_source: YouTube URL or video ID
         model: LLM model to use (default: gpt-4o)
         provider: LLM provider ('openai', 'anthropic', 'openrouter')
-        temperature: LLM temperature for creative writing (default: 0.7)
-        force_reprocess: If True, regenerate even if cached
+        temperature: LLM temperature for content generation (default: 0.5, balanced consistency/creativity)
         use_chapters: If True, use chapter-based generation (default: True, recommended)
         words_per_section: Target words per section for chapter-based (default: 2000)
+        parallel: If True, generate chapters in parallel (faster but no context)
+                  If False, generate sequentially with context (default: False, recommended)
+        use_cached_transcript: If True, use cached transcript if available (default: True)
+        use_cached_metadata: If True, use cached metadata if available (default: True)
+        use_cached_booklet: If True, use cached booklet if available (default: True)
         cache_dir: Cache directory
         
     Returns:
@@ -274,11 +283,19 @@ def generate_booklet(
             - num_sections: int (if chapter-based)
             
     Example:
-        >>> # Chapter-based (recommended for long videos)
-        >>> result = generate_booklet("https://youtube.com/watch?v=...", use_chapters=True)
+        >>> # Chapter-based with context (recommended for long videos)
+        >>> result = generate_booklet("https://youtube.com/watch?v=...")
         >>> 
-        >>> # Single-pass (faster, less detailed)
-        >>> result = generate_booklet("https://youtube.com/watch?v=...", use_chapters=False)
+        >>> # Regenerate only booklet (keep cached transcript/metadata)
+        >>> result = generate_booklet("https://youtube.com/watch?v=...", use_cached_booklet=False)
+        >>> 
+        >>> # Regenerate everything
+        >>> result = generate_booklet(
+        ...     "https://youtube.com/watch?v=...",
+        ...     use_cached_transcript=False,
+        ...     use_cached_metadata=False,
+        ...     use_cached_booklet=False
+        ... )
         >>> 
         >>> # Save to file
         >>> Path("booklet.md").write_text(result['booklet'])
@@ -322,7 +339,7 @@ def generate_booklet(
     transcript = None
     video_title = f"Video {video_id}"
     
-    if not force_reprocess:
+    if use_cached_transcript:
         transcript = cache.get_transcript(video_id)
         if transcript:
             num_segments = len(transcript.get('segments', []))
@@ -358,9 +375,14 @@ def generate_booklet(
     
     # Get video metadata (for title and chapters)
     logger.info("STEP 3: Getting video metadata...")
-    metadata = cache.get_metadata(video_id)
-    if not metadata and not force_reprocess:
-        # Try to fetch metadata
+    metadata = None
+    if use_cached_metadata:
+        metadata = cache.get_metadata(video_id)
+        if metadata:
+            logger.info("   ✅ Using cached metadata")
+    
+    if not metadata:
+        # Fetch metadata from YouTube
         logger.info("   Fetching from YouTube...")
         try:
             metadata_result = get_video_metadata.func(video_id)
@@ -370,8 +392,6 @@ def generate_booklet(
                 logger.info(f"   ✅ Got metadata")
         except Exception as e:
             logger.warning(f"   ⚠️  Could not fetch metadata: {e}")
-    elif metadata:
-        logger.info("   ✅ Using cached metadata")
     
     if metadata:
         video_title = metadata.get('title', video_title)
@@ -393,7 +413,7 @@ def generate_booklet(
     booklet_content = None
     num_sections = None
     
-    if not force_reprocess:
+    if use_cached_booklet:
         # Try to load from cache
         booklet_data = cache.get_booklet(video_id, model_key)
         if booklet_data:
@@ -433,6 +453,7 @@ def generate_booklet(
                 provider=provider,
                 temperature=temperature,
                 words_per_section=words_per_section,
+                parallel=parallel,
             )
         else:
             # Single-pass generation (faster, less detailed)

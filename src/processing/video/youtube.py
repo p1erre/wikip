@@ -210,16 +210,17 @@ def get_youtube_transcript(video_id: str) -> dict[str, Any]:
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
         
-        # Try to get transcript (prefers manual captions over auto-generated)
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        # Create API instance and fetch transcript
+        api = YouTubeTranscriptApi()
+        transcript_list = api.fetch(video_id)
         
         # Format the transcript segments
         segments = [
             {
-                "text": segment["text"],
-                "start": segment["start"],
-                "duration": segment["duration"],
-                "end": segment["start"] + segment["duration"]
+                "text": segment.text,
+                "start": segment.start,
+                "duration": segment.duration,
+                "end": segment.start + segment.duration
             }
             for segment in transcript_list
         ]

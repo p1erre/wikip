@@ -467,7 +467,8 @@ def generate_section(
     target_words: int = 2000,
     model: str = "gpt-4o",
     provider: str = "openai",
-    temperature: float = 0.7,
+    temperature: float = 0.5,
+    previous_context: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Generate a detailed section for one chapter.
@@ -479,6 +480,7 @@ def generate_section(
         model: LLM model to use
         provider: LLM provider
         temperature: LLM temperature
+        previous_context: Optional summary of previous chapters for continuity
         
     Returns:
         Dict with section content and metadata
@@ -505,6 +507,7 @@ def generate_section(
         chapter_title=chapter_title,
         transcript_text=formatted_transcript,
         target_words=target_words,
+        previous_context=previous_context,
     )
     
     # Log prompt stats
@@ -544,14 +547,38 @@ def _build_section_prompt(
     chapter_title: str,
     transcript_text: str,
     target_words: int,
+    previous_context: Optional[str] = None,
 ) -> str:
-    """Build prompt for generating a single section"""
+    """Build prompt for generating a single section with optional context from previous chapters.
+    
+    Args:
+        chapter_title: Title of the current chapter
+        transcript_text: Transcript text for this chapter
+        target_words: Target word count
+        previous_context: Optional summary of previous chapters with key concepts
+    """
+    
+    # Build context section if we have previous chapters
+    context_section = ""
+    if previous_context:
+        context_section = f"""PREVIOUS CHAPTERS CONTEXT:
+The booklet has already covered the following topics. Use this context to:
+- Reference concepts already defined (don't re-explain them)
+- Maintain consistent terminology
+- Build upon previous ideas
+- Create natural transitions from earlier content
+
+{previous_context}
+
+---
+
+"""
     
     return f"""You are writing a detailed section for an educational booklet.
 
 SECTION TITLE: {chapter_title}
 
-TRANSCRIPT FOR THIS SECTION:
+{context_section}TRANSCRIPT FOR THIS SECTION:
 {transcript_text}
 
 YOUR TASK:
@@ -571,21 +598,28 @@ REQUIREMENTS:
    - Expand on ideas to make them clearer in written form
    - Use the speaker's insights and explanations
 
-3. STRUCTURE:
+3. CONTINUITY (IMPORTANT):
+   - If concepts were introduced in previous chapters, reference them naturally
+   - Use the SAME terminology as previous chapters for consistency
+   - Don't re-explain concepts already covered - just reference and build upon them
+   - Create smooth transitions that acknowledge the booklet's flow
+   - If this introduces new concepts, define them clearly for use in later chapters
+
+4. STRUCTURE:
    - Start with a brief introduction to this topic
    - Use subheadings (###) to organize sub-topics
    - Use bullet points for lists of concepts
    - Use numbered lists for sequential steps
    - End each major point before moving to the next
 
-4. WRITING STYLE:
+5. WRITING STYLE:
    - Clear, professional, educational
    - Convert spoken language to polished prose
    - Remove filler words but keep all substance
    - Make complex ideas accessible
    - Maintain engaging tone
 
-5. FORMATTING:
+6. FORMATTING:
    - Use markdown: ### for subheadings, **bold**, *italic*
    - Create visual hierarchy
    - Use lists effectively
@@ -595,12 +629,88 @@ IMPORTANT:
 - This section should be DETAILED and COMPREHENSIVE
 - Aim for {target_words} words - don't be brief
 - Cover the topic thoroughly as if teaching it
+- Maintain consistency with previous chapters
 
 OUTPUT FORMAT:
 Return ONLY the section content in markdown. Start with the section heading (##).
 
 Begin the section now:
 """
+
+
+def extract_chapter_summary(
+    chapter_title: str,
+    chapter_content: str,
+    model: str = "gpt-4o-mini",
+    provider: str = "openai"
+) -> str:
+    """
+    Extract a concise summary with key concepts from a generated chapter.
+    
+    This summary will be used as context for subsequent chapters to maintain
+    concept continuity and consistent terminology.
+    
+    Args:
+        chapter_title: Title of the chapter
+        chapter_content: Full generated content for the chapter
+        model: LLM model to use (use cheaper model for summaries)
+        provider: LLM provider
+        
+    Returns:
+        Concise summary with key concepts and terminology
+    """
+    logger.info(f"     Extracting key concepts from '{chapter_title}'...")
+    
+    # Truncate content if too long (keep first 3000 chars for summary)
+    content_preview = chapter_content[:3000] if len(chapter_content) > 3000 else chapter_content
+    
+    prompt = f"""You are analyzing a chapter from an educational booklet to extract key information for context.
+
+CHAPTER TITLE: {chapter_title}
+
+CHAPTER CONTENT:
+{content_preview}
+
+YOUR TASK:
+Create a concise summary (150-250 words) that captures:
+1. Main topic/theme of this chapter
+2. Key concepts introduced with their definitions
+3. Important terminology used (with brief explanations)
+4. Core ideas or frameworks discussed
+5. Any specific examples or case studies mentioned
+
+FORMAT:
+Write in a structured format that's easy to reference:
+- Start with: "Chapter: [title]"
+- Use bullet points for key concepts
+- Bold important terms
+- Keep it factual and precise
+
+This summary will help maintain consistency in later chapters.
+
+Summary:
+"""
+    
+    try:
+        if provider == "openai":
+            from src.processing.content.generation import _call_openai
+            summary = _call_openai(prompt, model, temperature=0.3)
+        elif provider == "anthropic":
+            from src.processing.content.generation import _call_anthropic
+            summary = _call_anthropic(prompt, model, temperature=0.3)
+        elif provider == "openrouter":
+            from src.processing.content.generation import _call_openrouter
+            summary = _call_openrouter(prompt, model, temperature=0.3)
+        else:
+            raise ValueError(f"Unknown provider: {provider}")
+        
+        logger.info(f"     ✅ Extracted summary ({len(summary)} chars)")
+        return summary.strip()
+        
+    except Exception as e:
+        logger.warning(f"     ⚠️  Failed to extract summary: {e}")
+        # Fallback: create basic summary from title
+        return f"Chapter: {chapter_title}\n- Covers topics related to {chapter_title.lower()}"
 
 
 def combine_sections(
@@ -671,10 +781,18 @@ def _generate_sections_sequential(
     provider: str,
     temperature: float
 ) -> List[Dict[str, Any]]:
-    """Generate sections sequentially (one at a time)."""
+    """Generate sections sequentially (one at a time) with context from previous chapters."""
     sections = []
+    context_summaries = []  # Accumulate summaries of previous chapters
+    
     for i, chapter in enumerate(chapters, 1):
         logger.info(f"[{i}/{len(chapters)}] Processing: {chapter.get('title', 'Untitled')}")
+        
+        # Build context from previous chapters
+        previous_context = None
+        if context_summaries:
+            previous_context = "\n\n".join(context_summaries)
+            logger.info(f"     Using context from {len(context_summaries)} previous chapter(s)")
         
         chapter_transcript = extract_chapter_transcript(transcript, chapter)
         section = generate_section(
@@ -684,8 +802,20 @@ def _generate_sections_sequential(
             model=model,
             provider=provider,
             temperature=temperature,
+            previous_context=previous_context,
         )
         sections.append(section)
+        
+        # Extract summary for context if generation succeeded
+        if section.get('success') and section.get('content'):
+            summary = extract_chapter_summary(
+                chapter_title=section['title'],
+                chapter_content=section['content'],
+                model="gpt-4o-mini",  # Use cheaper model for summaries
+                provider=provider
+            )
+            context_summaries.append(summary)
+        
         logger.info("")
     
     return sections
@@ -700,8 +830,18 @@ def _generate_sections_parallel(
     temperature: float,
     max_workers: int
 ) -> List[Dict[str, Any]]:
-    """Generate sections in parallel (much faster)."""
+    """Generate sections in parallel (much faster but no context between chapters).
+    
+    WARNING: Parallel mode does not maintain context between chapters.
+    This can lead to:
+    - Inconsistent terminology
+    - Repeated explanations of concepts
+    - Poor narrative flow
+    
+    Use sequential mode (parallel=False) for better coherence.
+    """
     logger.info(f"⚡ Using parallel processing with {max_workers} workers")
+    logger.warning("⚠️  Parallel mode: chapters generated independently (no context sharing)")
     
     def generate_one_section(chapter_data):
         i, chapter = chapter_data
@@ -751,7 +891,7 @@ def generate_booklet_by_chapters(
     chapters: Optional[List[Dict[str, Any]]] = None,
     model: str = "gpt-4o",
     provider: str = "openai",
-    temperature: float = 0.7,
+    temperature: float = 0.5,
     words_per_section: int = 2000,
     auto_chapter_minutes: int = 5,
     parallel: bool = True,
@@ -772,7 +912,8 @@ def generate_booklet_by_chapters(
         temperature: LLM temperature
         words_per_section: Target words per section
         auto_chapter_minutes: Minutes per auto-created chapter
-        parallel: If True, generate sections in parallel (5x faster)
+        parallel: If True, generate sections in parallel (faster but no context)
+                  If False, generate sequentially with context from previous chapters (recommended)
         max_workers: Maximum parallel workers (default: 5)
         
     Returns:
