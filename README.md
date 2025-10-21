@@ -82,15 +82,15 @@ uv run python -m src.cli generate "https://youtube.com/watch?v=VIDEO_ID"
 ./vtb cache-info
 ```
 
-See `CLI_GUIDE.md` for complete CLI documentation.
+See `docs/CLI_GUIDE.md` for complete CLI documentation.
 
 ### Python API
 
 ```python
-from src.pipeline import generate_booklet
+from src.pipeline import transcript_to_booklet
 
 # Generate a booklet from a YouTube video
-result = generate_booklet(
+result = transcript_to_booklet(
     input_source="https://www.youtube.com/watch?v=VIDEO_ID",
     model="gpt-4o",
     provider="openai",
@@ -105,25 +105,25 @@ if result['success']:
     print(f"✅ Generated {result.get('num_sections')} sections")
 ```
 
-See `example_usage.py` for more Python examples.
+See `examples/example_usage.py` for more Python examples.
 
 ## 📖 Usage Examples
 
 ### 1. Generate Booklet (Simple)
 
 ```python
-from src.pipeline import generate_booklet
+from src.pipeline import transcript_to_booklet
 
-result = generate_booklet("https://www.youtube.com/watch?v=VIDEO_ID")
+result = transcript_to_booklet("https://www.youtube.com/watch?v=VIDEO_ID")
 print(result['booklet'])
 ```
 
 ### 2. Process Video with Vision Analysis
 
 ```python
-from src.pipeline import process_video
+from src.pipeline import process_video_with_slides
 
-result = process_video(
+result = process_video_with_slides(
     input_source="https://www.youtube.com/watch?v=VIDEO_ID",
     skip_vision=False,
     vision_provider="google",
@@ -138,7 +138,7 @@ print(f"Analyzed {len(result['vision_analysis'])} slides")
 
 ```python
 # Regenerate only the booklet (keep cached transcript)
-result = generate_booklet(
+result = transcript_to_booklet(
     input_source="VIDEO_URL",
     use_cached_transcript=True,
     use_cached_booklet=False,  # Force regeneration
@@ -150,21 +150,21 @@ result = generate_booklet(
 
 ```python
 # Sequential (recommended) - maintains context between chapters
-result = generate_booklet(
+result = transcript_to_booklet(
     input_source="VIDEO_URL",
     parallel=False,  # Sequential with context
     use_chapters=True
 )
 
 # Parallel - faster but no context sharing
-result = generate_booklet(
+result = transcript_to_booklet(
     input_source="VIDEO_URL",
     parallel=True,  # 5x faster
     use_chapters=True
 )
 ```
 
-See `example_usage.py` for complete examples.
+See `examples/example_usage.py` for complete examples.
 
 ## 🏗️ Project Structure
 
@@ -173,8 +173,17 @@ video-to-book/
 ├── README.md                    # This file
 ├── pyproject.toml              # Dependencies
 ├── .env.example                # Environment template
-├── example_usage.py            # Usage examples
-├── test_pipeline.py            # Import verification
+├── vtb                         # CLI wrapper script
+├── examples/                   # Usage examples
+│   ├── example_usage.py        # Python API examples
+│   ├── generate_booklet.py     # Simple booklet generation
+│   ├── ejemplo_pipeline.py     # Spanish examples
+│   └── test_pipeline.py        # Import verification
+├── docs/                       # Documentation
+│   ├── CLI_GUIDE.md           # CLI documentation
+│   ├── PIPELINE_EXPLICACION.md # Pipeline explanation
+│   ├── CHANGELOG.md           # Change history
+│   └── REFACTORING_SUMMARY.md # Refactoring notes
 │
 └── src/
     ├── pipeline.py             # Main API
@@ -199,8 +208,8 @@ video-to-book/
 
 ### Main Functions
 
-#### `generate_booklet()`
-Generate educational booklet from YouTube video.
+#### `transcript_to_booklet()`
+Generate educational booklet from YouTube video transcript.
 
 **Parameters:**
 - `input_source` (str): YouTube URL or video ID
@@ -216,8 +225,8 @@ Generate educational booklet from YouTube video.
 
 **Returns:** Dict with `success`, `booklet`, `video_id`, `video_title`, etc.
 
-#### `process_video()`
-Complete video processing with slides and vision analysis.
+#### `process_video_with_slides()`
+Complete video processing with slide extraction and vision analysis.
 
 **Parameters:**
 - `input_source` (str): YouTube URL/ID or local video file
@@ -266,7 +275,7 @@ GOOGLE_API_KEY=...  # For Gemini vision
 
 1. **Use Sequential Mode** for better coherence:
    ```python
-   generate_booklet(url, parallel=False)  # Maintains context
+   transcript_to_booklet(url, parallel=False)  # Maintains context
    ```
 
 2. **Adjust Temperature** based on needs:
@@ -276,7 +285,7 @@ GOOGLE_API_KEY=...  # For Gemini vision
 3. **Cache Control** for iterations:
    ```python
    # Keep transcript, regenerate booklet
-   generate_booklet(url, use_cached_booklet=False)
+   transcript_to_booklet(url, use_cached_booklet=False)
    ```
 
 ### Slide Extraction
@@ -290,12 +299,12 @@ GOOGLE_API_KEY=...  # For Gemini vision
 
 1. **Skip vision** if not needed (saves time/money):
    ```python
-   process_video(url, skip_vision=True)
+   process_video_with_slides(url, skip_vision=True)
    ```
 
 2. **Use Gemini** for cost-effective vision analysis:
    ```python
-   process_video(url, vision_provider="google", vision_model="gemini-1.5-flash")
+   process_video_with_slides(url, vision_provider="google", vision_model="gemini-1.5-flash")
    ```
 
 ## 🐛 Troubleshooting

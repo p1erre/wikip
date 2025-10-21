@@ -4,7 +4,7 @@ Generate booklet from YouTube video
 """
 
 from pathlib import Path
-from src.pipeline import generate_booklet
+from src.pipeline import transcript_to_booklet
 
 # Video URL
 video_url = "https://www.youtube.com/watch?v=Hm-ZIiwiN1o"
@@ -14,7 +14,7 @@ print(f"Video: {video_url}")
 print()
 
 # Generate booklet with sequential context (recommended)
-result = generate_booklet(
+result = transcript_to_booklet(
     input_source=video_url,
     model="gpt-4o",
     provider="openai",

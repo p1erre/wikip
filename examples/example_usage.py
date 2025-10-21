@@ -6,7 +6,7 @@ This demonstrates the main functionality after refactoring.
 """
 
 from pathlib import Path
-from src.pipeline import generate_booklet, process_video, get_cache_info
+from src.pipeline import transcript_to_booklet, process_video_with_slides, get_cache_info
 
 
 def example_1_generate_booklet():
@@ -19,7 +19,7 @@ def example_1_generate_booklet():
     video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     
     # Generate booklet with sequential context (recommended)
-    result = generate_booklet(
+    result = transcript_to_booklet(
         input_source=video_url,
         model="gpt-4o",
         provider="openai",
@@ -53,7 +53,7 @@ def example_2_process_video_with_vision():
     video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     
     # Process video (slides + transcript + vision)
-    result = process_video(
+    result = process_video_with_slides(
         input_source=video_url,
         skip_vision=False,           # Include vision analysis
         vision_provider="google",    # Use Google Gemini
@@ -79,7 +79,7 @@ def example_3_cache_control():
     
     # First run - everything cached
     print("\n1. Using all cached data:")
-    result = generate_booklet(
+    result = transcript_to_booklet(
         input_source=video_url,
         use_cached_transcript=True,
         use_cached_metadata=True,
@@ -89,7 +89,7 @@ def example_3_cache_control():
     
     # Second run - regenerate only booklet
     print("\n2. Regenerating booklet only:")
-    result = generate_booklet(
+    result = transcript_to_booklet(
         input_source=video_url,
         use_cached_transcript=True,   # Keep transcript
         use_cached_metadata=True,     # Keep metadata
@@ -100,7 +100,7 @@ def example_3_cache_control():
     
     # Third run - regenerate everything
     print("\n3. Regenerating everything:")
-    result = generate_booklet(
+    result = transcript_to_booklet(
         input_source=video_url,
         use_cached_transcript=False,
         use_cached_metadata=False,
@@ -119,7 +119,7 @@ def example_4_parallel_vs_sequential():
     
     # Parallel mode - faster but no context
     print("\n1. Parallel mode (faster, no context):")
-    result_parallel = generate_booklet(
+    result_parallel = transcript_to_booklet(
         input_source=video_url,
         parallel=True,
         use_cached_booklet=False,
@@ -128,7 +128,7 @@ def example_4_parallel_vs_sequential():
     
     # Sequential mode - slower but with context
     print("\n2. Sequential mode (slower, with context):")
-    result_sequential = generate_booklet(
+    result_sequential = transcript_to_booklet(
         input_source=video_url,
         parallel=False,
         use_cached_booklet=False,

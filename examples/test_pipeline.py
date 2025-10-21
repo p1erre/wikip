@@ -8,7 +8,7 @@ def test_imports():
     print("Testing imports...")
     
     # Core pipeline
-    from src.pipeline import process_video, generate_booklet, clear_video_cache, get_cache_info
+    from src.pipeline import process_video_with_slides, transcript_to_booklet, clear_video_cache, get_cache_info
     print("✅ Pipeline imports OK")
     
     # Utils

@@ -18,7 +18,7 @@ from src.processing.content import generate_booklet_from_transcript, generate_bo
 logger = logging.getLogger(__name__)
 
 
-def process_video(
+def process_video_with_slides(
     input_source: str,
     force_reprocess: bool = False,
     skip_vision: bool = False,
@@ -27,14 +27,15 @@ def process_video(
     cache_dir: str = ".cache"
 ) -> Dict[str, Any]:
     """
-    Complete video processing pipeline with automatic caching.
+    Complete video processing pipeline with slide extraction and vision analysis.
     
-    This function handles:
+    This pipeline is specialized for videos with slides/presentations.
+    It handles:
     1. Input normalization (YouTube URL/ID or local file)
     2. Video download (if YouTube)
     3. Slide extraction with caching
     4. Transcript fetching with caching
-    5. Vision analysis with caching
+    5. Vision analysis of slides with caching
     
     Args:
         input_source: YouTube URL/ID or local video file path
@@ -59,11 +60,11 @@ def process_video(
         RuntimeError: If processing fails
         
     Example:
-        >>> # YouTube video
-        >>> result = process_video("https://youtube.com/watch?v=...")
+        >>> # YouTube video with slides
+        >>> result = process_video_with_slides("https://youtube.com/watch?v=...")
         >>> 
-        >>> # Local file
-        >>> result = process_video("./my_video.mp4")
+        >>> # Local presentation video
+        >>> result = process_video_with_slides("./my_video.mp4")
         >>> 
         >>> # Access results
         >>> slides = result['slides']
@@ -228,7 +229,7 @@ def get_cache_info(cache_dir: str = ".cache") -> Dict[str, Any]:
     return cache.get_cache_info()
 
 
-def generate_booklet(
+def transcript_to_booklet(
     input_source: str,
     model: str = "gpt-4o",
     provider: str = "openai",
@@ -243,7 +244,10 @@ def generate_booklet(
     cache_dir: str = ".cache"
 ) -> Dict[str, Any]:
     """
-    Generate comprehensive booklet from YouTube video transcript.
+    Generate comprehensive booklet from YouTube video transcript only (no slides).
+    
+    This pipeline generates text-based booklets from video transcripts.
+    It does NOT process slides or use vision analysis.
     
     Workflow:
     1. Get transcript from YouTube (cached)
@@ -284,13 +288,13 @@ def generate_booklet(
             
     Example:
         >>> # Chapter-based with context (recommended for long videos)
-        >>> result = generate_booklet("https://youtube.com/watch?v=...")
+        >>> result = transcript_to_booklet("https://youtube.com/watch?v=...")
         >>> 
         >>> # Regenerate only booklet (keep cached transcript/metadata)
-        >>> result = generate_booklet("https://youtube.com/watch?v=...", use_cached_booklet=False)
+        >>> result = transcript_to_booklet("https://youtube.com/watch?v=...", use_cached_booklet=False)
         >>> 
         >>> # Regenerate everything
-        >>> result = generate_booklet(
+        >>> result = transcript_to_booklet(
         ...     "https://youtube.com/watch?v=...",
         ...     use_cached_transcript=False,
         ...     use_cached_metadata=False,

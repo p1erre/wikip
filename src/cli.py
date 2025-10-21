@@ -14,7 +14,7 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
-from src.pipeline import generate_booklet, process_video, get_cache_info, clear_video_cache
+from src.pipeline import transcript_to_booklet, process_video_with_slides, get_cache_info, clear_video_cache
 
 
 def cmd_generate(args):
@@ -25,7 +25,7 @@ def cmd_generate(args):
     print(f"Mode: {'Sequential' if not args.parallel else 'Parallel'}")
     print()
     
-    result = generate_booklet(
+    result = transcript_to_booklet(
         input_source=args.video_url,
         model=args.model,
         provider=args.provider,
@@ -85,7 +85,7 @@ def cmd_process(args):
         print(f"Vision provider: {args.vision_provider}/{args.vision_model}")
     print()
     
-    result = process_video(
+    result = process_video_with_slides(
         input_source=args.video_url,
         force_reprocess=args.force,
         skip_vision=args.no_vision,
