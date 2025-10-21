@@ -8,6 +8,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed - 2025-10-21
 
+#### Pipeline Module Separation
+Separated monolithic `pipeline.py` into specialized modules for better organization:
+
+- **Created `src/slides_pipeline.py`** (~200 lines)
+  - Contains `process_video_with_slides()` function
+  - Specialized for videos with slides/presentations
+  - Handles slide extraction, transcript, and vision analysis
+
+- **Created `src/transcript_pipeline.py`** (~300 lines)
+  - Contains `transcript_to_booklet()` function
+  - Specialized for transcript-only booklet generation
+  - No slide processing or vision analysis
+
+- **Refactored `src/pipeline.py`** (~60 lines)
+  - Now a thin wrapper that imports from specialized modules
+  - Maintains backward compatibility
+  - Contains utility functions: `clear_video_cache()`, `get_cache_info()`
+
+**Benefits:**
+- Each pipeline module has single responsibility
+- Easier to navigate and maintain (~250 lines vs 520 lines)
+- Better separation of concerns
+- Easier to test and iterate on individual pipelines
+
+### Fixed - 2025-10-21
+
+- **Video download bug**: Fixed KeyError when downloading videos - changed `audio_path` to `file_path`
+- **Slide extraction bug**: Now downloads actual video file (not just audio) for slide extraction
+
 #### Project Structure Reorganization
 Cleaned up root folder by organizing files into appropriate directories:
 

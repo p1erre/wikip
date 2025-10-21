@@ -163,7 +163,7 @@ def get_or_download_youtube_video(
         raise RuntimeError(f"Failed to download video: {result.get('error')}")
     
     # Cache the downloaded file
-    video_path = result['audio_path']
+    video_path = result['file_path']  # Changed from 'audio_path' to 'file_path'
     cached_path = cache.save_audio_path(video_id, video_path)
     
     return str(cached_path)
