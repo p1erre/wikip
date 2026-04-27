@@ -266,14 +266,14 @@ Examples:
     )
     process_parser.add_argument(
         '--vision-provider',
-        default='google',
+        default='openrouter',
         choices=['google', 'openai', 'openrouter'],
-        help='Vision provider (default: google)'
+        help='Vision provider (default: openrouter)'
     )
     process_parser.add_argument(
         '--vision-model',
-        default='gemini-1.5-flash',
-        help='Vision model (default: gemini-1.5-flash)'
+        default='google/gemini-2.0-flash-exp:free',
+        help='Vision model (default: google/gemini-2.0-flash-exp:free via OpenRouter)'
     )
     process_parser.add_argument(
         '--force',
