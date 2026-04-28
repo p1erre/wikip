@@ -1,3 +1,0 @@
-#!/bin/bash
-# Video-to-Book CLI wrapper
-uv run python -m src.cli "$@"
