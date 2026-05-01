@@ -1,6 +1,6 @@
 ---
 name: generate-booklet
-description: Write the final markdown booklet for a video. Use after /generate-chapters has produced chapters.json (and optionally /analyze-slides has produced slides/analysis.md). Uses a planner-then-workers pattern — one Claude pass plans the global structure, then N parallel subagents each write one chapter. Output is work/<video_id>/booklet.md.
+description: Write the final markdown booklet for a video. Use after /generate-chapters has produced chapters.json (and optionally /analyze-slides has produced slides/analysis.md). Uses a planner-then-workers pattern — one Claude pass plans the global structure, then chapter workers run sequentially, each receiving compact summaries of the chapters already written so the prose stays consistent across the booklet. Output is work/<video_id>/booklet.md.
 ---
 
 # generate-booklet
@@ -61,18 +61,30 @@ Produce a single JSON file `<work-dir>/plan.json` with:
   - `describe` — slide is text/bullets that prose can fully convey. Worker mentions it in prose without an image.
   - Default: `describe` for slides whose analysis has bullets but no diagram or code; `embed` for slides with `Diagram:` populated and no extractable code; `code` for slides with `Code:` populated.
 
-### Step 2 — Worker pass
+### Step 2 — Worker pass (sequential with rolling summaries)
 
-For each chapter, **spawn one general-purpose subagent in parallel** via the Agent tool. Each subagent gets:
+Process chapters **one at a time, in order**. After each worker finishes, extract its summary block and append it to a running `prior_summaries` list that is fed to the next worker. This gives each chapter awareness of what's already been written without bloating context with the full prior prose.
+
+For each chapter, spawn one general-purpose subagent via the Agent tool. The subagent gets:
 
 - The chapter object from `chapters.json` (number, title, start, end, transcript, slide_numbers).
 - Its brief from `plan.json` (must_cover, must_not_repeat, slide_callouts).
 - The `style_guide` list.
 - The relevant slide analysis blocks (extract from `slides/analysis.md` for the slide_numbers in this chapter; pass them inline to avoid the worker re-reading the whole file).
+- **`prior_summaries`** — the summary blocks emitted by every preceding chapter in this run, in order. Empty for chapter 1.
+
+After the worker returns, the orchestrator:
+
+1. Splits the response on `<!-- SUMMARY -->` / `<!-- /SUMMARY -->` markers.
+2. Writes the chapter markdown (everything before the summary block) to a draft list for stitching.
+3. Stores the parsed summary in `prior_summaries` for the next worker.
+4. Persists the running summaries to `<work-dir>/summaries.json` so re-runs of a single chapter (see Idempotency) can rebuild context without re-running earlier workers.
+
+If a worker's response is missing the summary block, re-run that chapter — do NOT proceed without it; the next chapter would lose its callback context.
 
 #### Worker prompt template
 
-> You are writing one chapter of a markdown booklet derived from a video transcript.
+> You are writing one chapter of a markdown booklet derived from a video transcript. Earlier chapters have already been written; brief summaries of them are provided so you stay consistent in tone, terminology, and what concepts have already been introduced.
 >
 > **Chapter:** {number}. {title}
 >
@@ -85,6 +97,11 @@ For each chapter, **spawn one general-purpose subagent in parallel** via the Age
 > - Must cover: {must_cover}
 > - Must NOT re-introduce (covered earlier): {must_not_repeat}
 > - Slide callouts: {slide_callouts}
+>
+> **Prior chapter summaries** (already written; do not re-cover, but feel free to reference back):
+> ```
+> {prior_summaries — concatenated, each block labelled with its chapter number; empty for chapter 1}
+> ```
 >
 > **Slide analyses** (for the slides shown during this chapter):
 > ```markdown
@@ -101,6 +118,13 @@ For each chapter, **spawn one general-purpose subagent in parallel** via the Age
 > ## Chapter {number} — {title} *(starts at mm:ss)*
 >
 > {prose, with code blocks / image embeds / inline references per the slide_callouts}
+>
+> <!-- SUMMARY -->
+> - Thesis: {one sentence — the core argument or takeaway of this chapter}
+> - Key terms introduced: {comma-separated list of new terms/concepts a reader now knows}
+> - Examples & analogies used: {short list — so later chapters don't reuse them}
+> - Closing hook: {one sentence — what state the reader is left in / what naturally follows}
+> <!-- /SUMMARY -->
 > ```
 >
 > Convert the chapter `start` (seconds) to `mm:ss` for the heading.
@@ -110,7 +134,9 @@ For each chapter, **spawn one general-purpose subagent in parallel** via the Age
 > - `code`: extract the `Code:` block from the slide analysis and render as a fenced code block, with a sentence introducing it.
 > - `describe`: weave the slide's content into prose; do NOT include the image.
 >
-> Output ONLY the chapter markdown — no preamble, no summary, no metadata fences.
+> When the prior summaries mention a term or example, you may reference it briefly ("as introduced in chapter 2") but must NOT redefine it. The summary block at the end is mandatory — the next chapter's writer depends on it.
+>
+> Output ONLY the chapter markdown followed by the SUMMARY block. No preamble, no metadata fences, no closing remarks after the summary.
 
 ### Step 3 — Stitch
 
@@ -130,7 +156,7 @@ Assemble `<work-dir>/booklet.md`:
 2. **Title** (`# {booklet_title}`).
 3. **Intro paragraph** (`plan.intro`).
 4. **Table of contents**: `## Contents` followed by an ordered list of links: `1. [Chapter Title](#chapter-1--chapter-title)`. Use markdown anchor format that matches the chapter headings.
-5. **Chapters**: subagent outputs in order, separated by blank lines.
+5. **Chapters**: chapter markdown from each worker in order, separated by blank lines. **Strip the `<!-- SUMMARY -->...<!-- /SUMMARY -->` block** from each chapter before writing — that block is internal scaffolding for the next worker, not reader-facing content.
 6. NO conclusion/outro. Booklet ends when the video ends.
 
 Write to `<work-dir>/booklet.md`. Report total word count and chapter count.
@@ -139,8 +165,11 @@ Write to `<work-dir>/booklet.md`. Report total word count and chapter count.
 
 If `<work-dir>/booklet.md` exists and is non-empty, skip with "using existing booklet". To regenerate (e.g., after editing the planner prompt), delete the file or use the meta-skill's `--force-stage generate-booklet`.
 
+To re-run a single chapter mid-booklet without redoing the chapters before it, load `<work-dir>/summaries.json` (chapters 1..N-1) into `prior_summaries`, run the worker for chapter N, then re-stitch. This is why summaries are persisted.
+
 ## Notes
 
 - The plan is small (typically <2KB). Persist it so you can iterate on workers without re-running the planner.
-- If a subagent's output looks malformed (e.g., missing the heading), re-run that single chapter.
+- Sequential workers cost ~Nx wall-clock vs the old parallel design but produce a noticeably more cohesive booklet (consistent terminology, real callbacks, no duplicated examples). If you need speed over polish for a draft pass, run the planner only and write a quick draft yourself, or temporarily edit this skill to skip the summary roll-up.
+- If a subagent's output is missing the heading or the SUMMARY block, re-run that single chapter — the next worker depends on the summary.
 - The booklet is the final artifact `/video-to-booklet` copies into `output/<title>/`. This skill writes only into `<work-dir>/`.
