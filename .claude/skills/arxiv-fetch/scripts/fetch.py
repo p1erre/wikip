@@ -46,6 +46,15 @@ INPUT_RE = re.compile(r"\\(?:input|include|subfile)\s*\{([^}]+)\}")
 SECTION_RE = re.compile(r"^\s*\\section\*?\s*\{(.+?)\}", re.MULTILINE)
 COMMENT_RE = re.compile(r"(?<!\\)%.*$", re.MULTILINE)
 TITLE_HINT_RE = re.compile(r"\\(?:section|chapter)\*?\s*\{(.+?)\}")
+
+FIGURE_START_RE = re.compile(r"\\begin\{figure\*?\}")
+FIGURE_END_RE = re.compile(r"\\end\{figure\*?\}")
+INCLUDEGRAPHICS_RE = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\s*\{([^}]+)\}")
+LABEL_RE = re.compile(r"\\label\s*\{([^}]+)\}")
+CAPTION_RE = re.compile(r"\\caption\s*(?:\[[^\]]*\])?\s*\{")
+TIKZ_RE = re.compile(r"\\begin\{tikzpicture\}")
+SUBFIGURE_START_RE = re.compile(r"\\begin\{subfigure\}")
+SUBFIGURE_END_RE = re.compile(r"\\end\{subfigure\}")
 ATOM_NS = "{http://www.w3.org/2005/Atom}"
 ARXIV_NS = "{http://arxiv.org/schemas/atom}"
 
@@ -301,6 +310,170 @@ def split_body_by_input(
     return parts, warnings
 
 
+def extract_braced_arg(s: str, start: int) -> tuple[str | None, int]:
+    """At s[start], expect '{'; return (content, position-just-after-})."""
+    if start >= len(s) or s[start] != "{":
+        return None, start
+    depth = 1
+    i = start + 1
+    while i < len(s) and depth > 0:
+        c = s[i]
+        if c == "\\" and i + 1 < len(s):
+            i += 2  # skip escaped character (e.g. \{, \})
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return s[start + 1 : i], i + 1
+        i += 1
+    return None, start  # unbalanced
+
+
+def find_matching_end(text: str, start_pos: int, start_re: re.Pattern, end_re: re.Pattern) -> int:
+    """Given the position right after a \\begin{X}, find the position of the matching \\end{X}.
+
+    Handles nested begin/end pairs of the same kind.
+    Returns the end-position (start of the closing \\end), or -1 on imbalance.
+    """
+    depth = 1
+    i = start_pos
+    while depth > 0 and i < len(text):
+        m_start = start_re.search(text, i)
+        m_end = end_re.search(text, i)
+        if not m_end:
+            return -1
+        if m_start and m_start.start() < m_end.start():
+            depth += 1
+            i = m_start.end()
+        else:
+            depth -= 1
+            if depth == 0:
+                return m_end.start()
+            i = m_end.end()
+    return -1
+
+
+def extract_caption(body: str) -> str | None:
+    """Find the *outermost* \\caption{...} in body and extract its braced argument."""
+    m = CAPTION_RE.search(body)
+    if not m:
+        return None
+    arg, _ = extract_braced_arg(body, m.end() - 1)
+    if arg is None:
+        return None
+    # Strip embedded \label{...} from the caption body
+    arg = LABEL_RE.sub("", arg)
+    # Collapse whitespace, drop trailing punctuation noise
+    return " ".join(arg.split()).strip()
+
+
+def extract_label(body: str) -> str | None:
+    """First \\label{...} in body."""
+    m = LABEL_RE.search(body)
+    return m.group(1).strip() if m else None
+
+
+def resolve_includegraphics(ref: str, raw_figures: Path) -> str | None:
+    """LaTeX \\includegraphics paths typically omit the extension and use forward slashes.
+
+    Try, in order: the bare ref (with extension if present), then ref.<ext> for
+    each known extension, against files we already copied to raw_figures/.
+    Returns a path relative to raw/ (e.g. "figures/fig_001.png"), or None.
+    """
+    if not raw_figures.is_dir():
+        return None
+    ref = ref.strip()
+    candidates = [Path(ref).name]  # strip directory
+    stem = Path(ref).stem
+    for ext in (".png", ".jpg", ".jpeg", ".pdf", ".eps"):
+        candidates.append(stem + ext)
+        # EPS/PDF were converted to PNG by copy_figures, so also try stem+.png
+        if Path(ref).suffix.lower() in {".pdf", ".eps"}:
+            candidates.append(stem + ".png")
+    for cand in candidates:
+        target = raw_figures / cand
+        if target.is_file():
+            return f"figures/{cand}"
+    return None
+
+
+def extract_figures(section_files: list[Path], raw_figures: Path, sections_root: Path) -> list[dict]:
+    """Walk every section file; emit one record per \\begin{figure} block.
+
+    Each record contains: label, caption, image_refs (raw LaTeX paths),
+    resolved_paths (paths inside raw/), has_tikz, subfigures.
+    """
+    figures: list[dict] = []
+    for section_file in section_files:
+        text = section_file.read_text(encoding="utf-8", errors="replace")
+        rel_section = str(section_file.relative_to(sections_root.parent))
+        pos = 0
+        while True:
+            m_start = FIGURE_START_RE.search(text, pos)
+            if not m_start:
+                break
+            end_pos = find_matching_end(text, m_start.end(), FIGURE_START_RE, FIGURE_END_RE)
+            if end_pos < 0:
+                # Unbalanced — skip rest of file
+                break
+            body = text[m_start.end() : end_pos]
+            pos = end_pos + len("\\end{figure}")
+
+            # Extract subfigures first (one level deep), then strip them from
+            # body so the parent's caption/label/refs come from the *outer*
+            # figure-level scope only.
+            subfigures: list[dict] = []
+            stripped = []
+            cursor = 0
+            while True:
+                sm = SUBFIGURE_START_RE.search(body, cursor)
+                if not sm:
+                    break
+                sub_end = find_matching_end(body, sm.end(), SUBFIGURE_START_RE, SUBFIGURE_END_RE)
+                if sub_end < 0:
+                    break
+                sub_body = body[sm.end() : sub_end]
+                sub_close_end = sub_end + len("\\end{subfigure}")
+                stripped.append(body[cursor : sm.start()])
+                cursor = sub_close_end
+                sub_caption = extract_caption(sub_body)
+                sub_label = extract_label(sub_body)
+                sub_refs = [im.group(1) for im in INCLUDEGRAPHICS_RE.finditer(sub_body)]
+                sub_resolved = [r for r in (resolve_includegraphics(ref, raw_figures) for ref in sub_refs) if r]
+                subfigures.append({
+                    "label": sub_label,
+                    "caption": sub_caption,
+                    "image_refs": sub_refs,
+                    "resolved_paths": sub_resolved,
+                    "has_tikz": bool(TIKZ_RE.search(sub_body)),
+                })
+            stripped.append(body[cursor:])
+            outer_body = "".join(stripped)
+
+            caption = extract_caption(outer_body)
+            label = extract_label(outer_body)
+            image_refs = [im.group(1) for im in INCLUDEGRAPHICS_RE.finditer(outer_body)]
+            resolved = [r for r in (resolve_includegraphics(ref, raw_figures) for ref in image_refs) if r]
+            has_tikz = bool(TIKZ_RE.search(outer_body)) or any(s["has_tikz"] for s in subfigures)
+            # Roll up resolved paths from subfigures so the parent's "available" flag
+            # reflects the whole figure including its subfigures
+            resolved_with_subs = list(resolved) + [r for s in subfigures for r in s["resolved_paths"]]
+
+            figures.append({
+                "label": label,
+                "caption": caption,
+                "section_file": rel_section,
+                "image_refs": image_refs,
+                "resolved_paths": resolved,
+                "has_tikz": has_tikz,
+                "available": bool(resolved_with_subs) or has_tikz,
+                "subfigures": subfigures,
+            })
+    return figures
+
+
 def copy_figures(source_root: Path, raw_figures: Path) -> list[str]:
     """Copy and convert figures into raw/figures/. Returns a list of warnings."""
     raw_figures.mkdir(parents=True, exist_ok=True)
@@ -407,6 +580,26 @@ def main() -> int:
     figure_warnings = copy_figures(source_root, raw_dir / "figures")
     warnings.extend(figure_warnings)
 
+    # Extract figure metadata (caption, label, image refs) from each section.
+    figure_records = extract_figures(
+        sorted(sections_dir.glob("*.tex")),
+        raw_dir / "figures",
+        sections_dir,
+    )
+    figure_stats = {
+        "total": len(figure_records),
+        "with_image": sum(1 for f in figure_records if f["resolved_paths"]),
+        "tikz_only": sum(1 for f in figure_records if f["has_tikz"] and not f["resolved_paths"]),
+        "missing": sum(1 for f in figure_records if not f["available"]),
+    }
+    (raw_dir / "figures.json").write_text(
+        json.dumps(
+            {"figures": figure_records, "stats": figure_stats},
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
     # Surface bibliography files for downstream citation resolution.
     for bib in source_root.rglob("*.bib"):
         shutil.copy2(bib, raw_dir / bib.name)
@@ -428,6 +621,11 @@ def main() -> int:
     )
 
     print(f"wrote {len(structure)} sections to {sections_dir}")
+    print(
+        f"figures: {figure_stats['total']} total, "
+        f"{figure_stats['with_image']} with raster image, "
+        f"{figure_stats['tikz_only']} TikZ-only"
+    )
     if warnings:
         print(f"{len(warnings)} warnings — see structure.json")
     return 0

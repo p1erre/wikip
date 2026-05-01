@@ -214,11 +214,46 @@ validate.py enforces:
 - Every node corresponds to an existing page.
 - Edge endpoints satisfy the predicate's `from_type` / `to_type` constraints. (Predicates that say `from_type: paper` accept any paper-like type — `paper`, `video`, `pdf` — but not `concept`.)
 
+## Using figures and captions
+
+For arxiv-fetch sources, `raw/figures.json` is the manifest of every figure in the paper. Each record has:
+
+- `label` — the LaTeX label (e.g. `fig:delg`), used as the cross-reference target throughout the paper.
+- `caption` — the cleaned caption text. **This is the semantic glue**: it's the author's own one-line description of what the figure is about, and it tells you which concept the figure illustrates.
+- `section_file` — which section file the figure lives in.
+- `resolved_paths` — paths relative to `raw/` where the actual image lives (empty for TikZ-only figures until TikZ rendering is added).
+- `has_tikz` — whether the figure body contains a `tikzpicture` (no raster, currently).
+- `available` — `true` iff the figure has a resolved image OR is TikZ.
+- `subfigures[]` — same shape, one level deep.
+
+### How to use this when synthesising a concept page
+
+1. **Scan captions for relevance to the concept**. After deciding a concept page is in scope, walk `figures.json` and pick figures whose caption directly relates to the concept. (Example: building a page for `directed-edge-labelled-graph`, the figure with caption *"Directed edge-labelled graph describing events and their venues"* is an obvious match.)
+
+2. **For each relevant figure with a `resolved_paths` entry**, embed it in the concept page using GFM image syntax with the caption as the alt text and as a visible caption underneath:
+
+   ```markdown
+   ![Directed edge-labelled graph describing events and their venues](../../documents/arxiv-2003.02320/raw/figures/fig_001.png)
+   *Figure: Directed edge-labelled graph describing events and their venues. From [[arxiv-2003.02320]] §sections/03_data-graphs.tex.*
+   ```
+
+   The image path is relative to the concept page's location (`pages/concepts/<slug>.md`); use `../../documents/<source>/raw/<resolved_path>`. The visible caption underneath both makes the page scannable and creates a backlink to the source paper.
+
+3. **For TikZ-only figures (no resolved image yet)**, embed only the textual caption with a backlink and a label like *"(figure not rendered)"* — no broken image. When TikZ rendering is added in a future iteration, these will fill in automatically.
+
+   ```markdown
+   *Figure (not rendered): Data about capitals and countries in a directed edge-labelled graph and a heterogeneous graph. See [[arxiv-2003.02320]] for the original.*
+   ```
+
+4. **Don't embed figures on paper pages**, only on concept pages. The paper page's job is to summarise; the concept page's job is to teach a concept, where the figure is doing real semantic work.
+
+5. **Multiple papers, same concept**: when a second paper is ingested that adds figures relating to an existing concept, merge them into the same concept page, attributing each figure to the paper it came from. Don't duplicate figures across pages.
+
 ## Source-type readers
 
 | Source type | What to read | Notes |
 |---|---|---|
-| arxiv-fetch | `raw/structure.json` for section list, then walk `raw/sections/*.tex` in order. Read `raw/preamble.tex` once for macro context. Pull metadata from `raw/arxiv_meta.json`. | TikZ figures will appear as raw LaTeX — ignore. Custom macros from preamble.tex give context but don't need rendering. |
+| arxiv-fetch | `raw/structure.json` for section list, then walk `raw/sections/*.tex` in order. Read `raw/preamble.tex` once for macro context. Pull metadata from `raw/arxiv_meta.json`. **Read `raw/figures.json` for the figure manifest** (per-figure caption, label, image-paths, has_tikz). | TikZ figures will appear as raw LaTeX in the section files — ignore the LaTeX source itself, but use the captured caption from `figures.json`. Custom macros from preamble.tex give context but don't need rendering. |
 | video-to-booklet | `booklet.md` is the prose; pull title from the H1 and authors from video metadata if available. | Booklets are already markdown — just synthesise. |
 | pdf-extract | `content.md` for prose, `metadata.json` for header info. If `pdf_profile.json` has `unreliable: true`, flag it in the paper page's "Open questions". | |
 

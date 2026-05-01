@@ -29,6 +29,7 @@ Fetch a single arXiv paper and lay out its LaTeX source so the downstream wikip 
   sections/01_*.tex     one file per top-level \input boundary (or per top-level \section{} if monolithic), nested \input's already inlined; leading block is 01_front-matter.tex (title/authors/abstract)
   structure.json        {arxiv_id, version, main_tex, sections: [{file, title_hint}, ...], warnings: [...]}
   figures/              raster figures + EPS/PDF figures pre-converted to PNG (empty if the paper uses TikZ exclusively)
+  figures.json          per-figure metadata: caption, label (e.g. fig:foo), section_file, image_refs (raw \includegraphics paths), resolved_paths (paths into raw/figures/), has_tikz, available, subfigures[]; plus stats {total, with_image, tikz_only, missing}
   arxiv_meta.json       arXiv API metadata (title, authors, abstract, categories, version, primary_class)
   *.bib / *.bbl         bibliography sources, copied verbatim for downstream citation resolution
   paper.pdf             only present when no LaTeX source available
