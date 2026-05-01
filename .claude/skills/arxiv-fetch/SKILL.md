@@ -29,7 +29,8 @@ Fetch a single arXiv paper and lay out its LaTeX source so the downstream wikip 
   sections/01_*.tex     one file per top-level \input boundary (or per top-level \section{} if monolithic), nested \input's already inlined; leading block is 01_front-matter.tex (title/authors/abstract)
   structure.json        {arxiv_id, version, main_tex, sections: [{file, title_hint}, ...], warnings: [...]}
   figures/              raster figures + EPS/PDF figures pre-converted to PNG (empty if the paper uses TikZ exclusively)
-  figures.json          per-figure metadata: caption, label (e.g. fig:foo), section_file, image_refs (raw \includegraphics paths), resolved_paths (paths into raw/figures/), has_tikz, available, subfigures[]; plus stats {total, with_image, tikz_only, missing}
+  _tikz/                TikZ figures rasterised to PNG (only when pdflatex is available); separate from figures/ so source-derived assets are never mixed with regenerated ones
+  figures.json          per-figure metadata: caption, label (e.g. fig:foo), section_file, image_refs (raw \includegraphics paths), resolved_paths (paths under raw/, may point into figures/ or _tikz/), has_tikz, tikz_sources (raw \begin{tikzpicture}...\end{tikzpicture} blocks), available, subfigures[]; plus stats {total, with_image, tikz_only, missing}
   arxiv_meta.json       arXiv API metadata (title, authors, abstract, categories, version, primary_class)
   *.bib / *.bbl         bibliography sources, copied verbatim for downstream citation resolution
   paper.pdf             only present when no LaTeX source available
@@ -53,4 +54,7 @@ Skips if `raw/structure.json` (or `raw/no_source.flag`) already exists. To force
 - This skill does NOT convert LaTeX to markdown. The downstream wikip skill reads `raw/sections/*.tex` directly when synthesising wiki content, avoiding a redundant Claude pass through an intermediate markdown file.
 - This skill does NOT resolve bibliography keys to full citations. The `.bib` / `.bbl` files in `raw/` let a downstream skill do that.
 - arXiv API metadata uses `https://export.arxiv.org/api/query?id_list=<id>` — no key required, but rate-limited to ~1 req/3s.
-- System deps: only `pdftoppm` (poppler) for converting EPS/PDF figures to PNG. Install via `brew install poppler` on macOS if missing.
+- System deps:
+  - **`pdftoppm` (poppler)** — required for converting EPS/PDF figures and TikZ-rendered PDFs to PNG. `brew install poppler` on macOS.
+  - **`pdflatex` (TeX Live or MacTeX)** — *optional, but strongly recommended.* When available, the fetcher renders each `\begin{tikzpicture}` block to a PNG in `raw/_tikz/` so the downstream wikip skill can embed diagrams visually instead of as opaque text. Without `pdflatex`, TikZ figures are skipped with a warning and `figures.json` falls back to listing `tikz_sources` only. Install via `brew install --cask mactex-no-gui` on macOS.
+- TikZ rendering uses `\documentclass{standalone}` with the paper's preamble sanitised to drop journal-class machinery (acmart/IEEEtran title macros, copyright, hyperref, biblatex). Paper-specific `.sty`/`.cls` files in the source tree are reachable via `TEXINPUTS`. Compilation is sandboxed with `-no-shell-escape` and a 60s timeout per figure. Figures that fail to compile (e.g. depending on colors defined in body text rather than the preamble) are listed in `structure.json` warnings; downstream code should fall back to embedding `tikz_sources` as a fenced LaTeX block.

@@ -44,6 +44,7 @@ from sections import (
     split_preamble,
 )
 from tex_utils import strip_comments
+from tikz_render import render_tikz_figures, sanitize_preamble
 
 
 def main() -> int:
@@ -123,6 +124,11 @@ def main() -> int:
         raw_dir / "figures",
         sections_dir,
     )
+
+    sanitized = sanitize_preamble(preamble)
+    tikz_warnings = render_tikz_figures(figure_records, raw_dir, sanitized, source_root)
+    warnings.extend(tikz_warnings)
+
     stats = figure_stats(figure_records)
     (raw_dir / "figures.json").write_text(
         json.dumps({"figures": figure_records, "stats": stats}, indent=2, ensure_ascii=False)

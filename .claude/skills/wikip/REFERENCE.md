@@ -221,8 +221,9 @@ For arxiv-fetch sources, `raw/figures.json` is the manifest of every figure in t
 - `label` — the LaTeX label (e.g. `fig:delg`), used as the cross-reference target throughout the paper.
 - `caption` — the cleaned caption text. **This is the semantic glue**: it's the author's own one-line description of what the figure is about, and it tells you which concept the figure illustrates.
 - `section_file` — which section file the figure lives in.
-- `resolved_paths` — paths relative to `raw/` where the actual image lives (empty for TikZ-only figures until TikZ rendering is added).
-- `has_tikz` — whether the figure body contains a `tikzpicture` (no raster, currently).
+- `resolved_paths` — paths relative to `raw/` where the image lives. May point into `figures/` (raster originals or EPS/PDF→PNG conversions) or `_tikz/` (TikZ blocks rasterised by `pdflatex`+`pdftoppm`). Empty when no image is available — usually because pdflatex is missing or the figure's TikZ source depends on body-text-defined macros that the standalone compile can't see.
+- `has_tikz` — whether the figure body contains a `tikzpicture`.
+- `tikz_sources` — list of raw `\begin{tikzpicture}…\end{tikzpicture}` source blocks, one per tikzpicture in the figure scope. Use these as a textual fallback when `resolved_paths` is empty for a TikZ figure.
 - `available` — `true` iff the figure has a resolved image OR is TikZ.
 - `subfigures[]` — same shape, one level deep.
 
@@ -233,17 +234,25 @@ For arxiv-fetch sources, `raw/figures.json` is the manifest of every figure in t
 2. **For each relevant figure with a `resolved_paths` entry**, embed it in the concept page using GFM image syntax with the caption as the alt text and as a visible caption underneath:
 
    ```markdown
-   ![Directed edge-labelled graph describing events and their venues](../../documents/arxiv-2003.02320/raw/figures/fig_001.png)
+   ![Directed edge-labelled graph describing events and their venues](../../documents/arxiv-2003.02320/raw/_tikz/fig-delg.png)
    *Figure: Directed edge-labelled graph describing events and their venues. From [[arxiv-2003.02320]] §sections/03_data-graphs.tex.*
    ```
 
-   The image path is relative to the concept page's location (`pages/concepts/<slug>.md`); use `../../documents/<source>/raw/<resolved_path>`. The visible caption underneath both makes the page scannable and creates a backlink to the source paper.
+   The image path is relative to the concept page's location (`pages/concepts/<slug>.md`); use `../../documents/<source>/raw/<resolved_path>`. `<resolved_path>` may begin with `figures/` (raster originals) or `_tikz/` (rasterised TikZ) — both are valid. The visible caption underneath both makes the page scannable and creates a backlink to the source paper.
 
-3. **For TikZ-only figures (no resolved image yet)**, embed only the textual caption with a backlink and a label like *"(figure not rendered)"* — no broken image. When TikZ rendering is added in a future iteration, these will fill in automatically.
+3. **For TikZ figures with no `resolved_paths` (compile failed or pdflatex missing)**, embed the caption plus a fenced LaTeX block from `tikz_sources` so a reader can still see the figure's structure:
 
    ```markdown
    *Figure (not rendered): Data about capitals and countries in a directed edge-labelled graph and a heterogeneous graph. See [[arxiv-2003.02320]] for the original.*
+
+   ```latex
+   \begin{tikzpicture}
+   ...
+   \end{tikzpicture}
    ```
+   ```
+
+   If `tikz_sources` is large or noisy, just include the caption with the backlink and skip the source block.
 
 4. **Don't embed figures on paper pages**, only on concept pages. The paper page's job is to summarise; the concept page's job is to teach a concept, where the figure is doing real semantic work.
 
@@ -253,7 +262,7 @@ For arxiv-fetch sources, `raw/figures.json` is the manifest of every figure in t
 
 | Source type | What to read | Notes |
 |---|---|---|
-| arxiv-fetch | `raw/structure.json` for section list, then walk `raw/sections/*.tex` in order. Read `raw/preamble.tex` once for macro context. Pull metadata from `raw/arxiv_meta.json`. **Read `raw/figures.json` for the figure manifest** (per-figure caption, label, image-paths, has_tikz). | TikZ figures will appear as raw LaTeX in the section files — ignore the LaTeX source itself, but use the captured caption from `figures.json`. Custom macros from preamble.tex give context but don't need rendering. |
+| arxiv-fetch | `raw/structure.json` for section list, then walk `raw/sections/*.tex` in order. Read `raw/preamble.tex` once for macro context. Pull metadata from `raw/arxiv_meta.json`. **Read `raw/figures.json` for the figure manifest** (per-figure caption, label, resolved_paths, has_tikz, tikz_sources). | When `pdflatex` was available at fetch time, TikZ figures are pre-rendered to `raw/_tikz/*.png` and listed in `resolved_paths` — embed them like any raster figure. When rendering failed (or pdflatex was missing), `resolved_paths` is empty and `tikz_sources` holds the LaTeX source. Custom macros from preamble.tex give context but don't need rendering. |
 | video-to-booklet | `booklet.md` is the prose; pull title from the H1 and authors from video metadata if available. | Booklets are already markdown — just synthesise. |
 | pdf-extract | `content.md` for prose, `metadata.json` for header info. If `pdf_profile.json` has `unreliable: true`, flag it in the paper page's "Open questions". | |
 

@@ -27,6 +27,8 @@ INCLUDEGRAPHICS_RE = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\s*\{([^}]+)\}
 LABEL_RE = re.compile(r"\\label\s*\{([^}]+)\}")
 CAPTION_RE = re.compile(r"\\caption\s*(?:\[[^\]]*\])?\s*\{")
 TIKZ_RE = re.compile(r"\\begin\{tikzpicture\}")
+TIKZ_START_RE = re.compile(r"\\begin\{tikzpicture\}(?:\[[^\]]*\])?")
+TIKZ_END_RE = re.compile(r"\\end\{tikzpicture\}")
 SUBFIGURE_START_RE = re.compile(r"\\begin\{subfigure\}")
 SUBFIGURE_END_RE = re.compile(r"\\end\{subfigure\}")
 
@@ -51,6 +53,23 @@ def extract_label(body: str) -> str | None:
     """First \\label{...} in body."""
     m = LABEL_RE.search(body)
     return m.group(1).strip() if m else None
+
+
+def extract_tikz_sources(body: str) -> list[str]:
+    """Return each \\begin{tikzpicture}...\\end{tikzpicture} block's full source."""
+    out: list[str] = []
+    cursor = 0
+    while True:
+        m = TIKZ_START_RE.search(body, cursor)
+        if not m:
+            break
+        end = find_matching_end(body, m.end(), TIKZ_START_RE, TIKZ_END_RE)
+        if end < 0:
+            break
+        close_end = end + len("\\end{tikzpicture}")
+        out.append(body[m.start() : close_end])
+        cursor = close_end
+    return out
 
 
 def resolve_includegraphics(ref: str, raw_figures: Path) -> str | None:
@@ -143,6 +162,7 @@ def _parse_subfigures(body: str, raw_figures: Path) -> tuple[list[dict], str]:
             "image_refs": sub_refs,
             "resolved_paths": sub_resolved,
             "has_tikz": bool(TIKZ_RE.search(sub_body)),
+            "tikz_sources": extract_tikz_sources(sub_body),
         })
     stripped.append(body[cursor:])
     return subfigures, "".join(stripped)
@@ -176,6 +196,7 @@ def extract_figures(section_files: list[Path], raw_figures: Path, sections_root:
             resolved = [r for r in (resolve_includegraphics(ref, raw_figures) for ref in image_refs) if r]
             has_tikz = bool(TIKZ_RE.search(outer_body)) or any(s["has_tikz"] for s in subfigures)
             resolved_with_subs = list(resolved) + [r for s in subfigures for r in s["resolved_paths"]]
+            tikz_sources = extract_tikz_sources(outer_body)
 
             figures.append({
                 "label": label,
@@ -184,6 +205,7 @@ def extract_figures(section_files: list[Path], raw_figures: Path, sections_root:
                 "image_refs": image_refs,
                 "resolved_paths": resolved,
                 "has_tikz": has_tikz,
+                "tikz_sources": tikz_sources,
                 "available": bool(resolved_with_subs) or has_tikz,
                 "subfigures": subfigures,
             })
