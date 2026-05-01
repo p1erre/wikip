@@ -46,3 +46,7 @@ frames/
 # Logs
 *.log
 logs/
+
+# Raw data
+raw/
+

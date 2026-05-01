@@ -17,6 +17,11 @@ dependencies = [
     "pillow>=10.0.0",
     "imagehash>=4.3.1",
     "numpy>=1.26.0",
+    "pymupdf>=1.24.0",
+    "marker-pdf>=0.3.0",
+    "nougat-ocr>=0.1.17",
+    "ocrmypdf>=16.0.0",
+    "pylatexenc>=2.10",
 ]
 
 [tool.uv]
