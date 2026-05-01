@@ -231,16 +231,25 @@ For arxiv-fetch sources, `raw/figures.json` is the manifest of every figure in t
 
 1. **Scan captions for relevance to the concept**. After deciding a concept page is in scope, walk `figures.json` and pick figures whose caption directly relates to the concept. (Example: building a page for `directed-edge-labelled-graph`, the figure with caption *"Directed edge-labelled graph describing events and their venues"* is an obvious match.)
 
-2. **For each relevant figure with a `resolved_paths` entry**, embed it in the concept page using GFM image syntax with the caption as the alt text and as a visible caption underneath:
+2. **Copy each chosen figure into the vault.** Obsidian only resolves images that live inside the vault directory, so before writing a concept page you must copy the figure file from `<source-dir>/raw/<resolved_path>` into `<wiki-dir>/assets/<paper-slug>/<basename>`:
+
+   ```bash
+   mkdir -p <wiki-dir>/assets/<paper-slug>
+   cp <source-dir>/raw/_tikz/fig-delg.png <wiki-dir>/assets/<paper-slug>/fig-delg.png
+   ```
+
+   Bulk-copying the whole `_tikz/` directory is fine — disk cost is small and unembedded figures stay browsable. Don't symlink: Dropbox/iCloud sync handles symlinks unreliably.
+
+3. **Embed it in the concept page** using GFM image syntax with the caption as alt text and a visible caption underneath. The image path is relative from `pages/concepts/<slug>.md` to `assets/<paper-slug>/<basename>` — i.e. `../../assets/<paper-slug>/<basename>`:
 
    ```markdown
-   ![Directed edge-labelled graph describing events and their venues](../../documents/arxiv-2003.02320/raw/_tikz/fig-delg.png)
+   ![Directed edge-labelled graph describing events and their venues](../../assets/arxiv-2003.02320/fig-delg.png)
    *Figure: Directed edge-labelled graph describing events and their venues. From [[arxiv-2003.02320]] §sections/03_data-graphs.tex.*
    ```
 
-   The image path is relative to the concept page's location (`pages/concepts/<slug>.md`); use `../../documents/<source>/raw/<resolved_path>`. `<resolved_path>` may begin with `figures/` (raster originals) or `_tikz/` (rasterised TikZ) — both are valid. The visible caption underneath both makes the page scannable and creates a backlink to the source paper.
+   The visible caption underneath both makes the page scannable and creates a backlink to the source paper. This relative form renders identically in Obsidian, GitHub, VS Code preview, and any other vault-aware Markdown renderer.
 
-3. **For TikZ figures with no `resolved_paths` (compile failed or pdflatex missing)**, embed the caption plus a fenced LaTeX block from `tikz_sources` so a reader can still see the figure's structure:
+5. **For TikZ figures with no `resolved_paths` (compile failed or pdflatex missing)**, embed the caption plus a fenced LaTeX block from `tikz_sources` so a reader can still see the figure's structure:
 
    ```markdown
    *Figure (not rendered): Data about capitals and countries in a directed edge-labelled graph and a heterogeneous graph. See [[arxiv-2003.02320]] for the original.*
@@ -254,9 +263,9 @@ For arxiv-fetch sources, `raw/figures.json` is the manifest of every figure in t
 
    If `tikz_sources` is large or noisy, just include the caption with the backlink and skip the source block.
 
-4. **Don't embed figures on paper pages**, only on concept pages. The paper page's job is to summarise; the concept page's job is to teach a concept, where the figure is doing real semantic work.
+6. **Don't embed figures on paper pages**, only on concept pages. The paper page's job is to summarise; the concept page's job is to teach a concept, where the figure is doing real semantic work.
 
-5. **Multiple papers, same concept**: when a second paper is ingested that adds figures relating to an existing concept, merge them into the same concept page, attributing each figure to the paper it came from. Don't duplicate figures across pages.
+7. **Multiple papers, same concept**: when a second paper is ingested that adds figures relating to an existing concept, merge them into the same concept page, attributing each figure to the paper it came from. Don't duplicate figures across pages.
 
 ## Source-type readers
 
