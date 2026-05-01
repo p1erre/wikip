@@ -1,15 +1,22 @@
 """Validate a wikip wiki and regenerate index.md.
 
 Checks:
-  - Every page has YAML frontmatter with required fields (slug, title, source, type, ingested).
+  - Every page has YAML frontmatter with the required fields for its type.
+    Papers/videos/pdfs require: slug, title, source, type, ingested.
+    Concepts require:           slug, title, type, ingested.
   - Frontmatter slug matches the filename stem.
+  - Pages live under pages/papers/ or pages/concepts/ matching their type.
   - Every [[wiki-link]] in page bodies resolves to an existing page.
   - Every edge in graph.json has from/to slugs that exist as pages.
   - Every edge predicate is defined in _schema.json.
+  - For predicates that declare from_type / to_type, edge endpoints have the
+    declared page types.
   - Every node in graph.json corresponds to an existing page.
   - Reports orphan-in pages (no incoming edges) — informational, not an error.
+  - Concept pages with no `discusses` / `defines` / `introduces` paper edge
+    are flagged as orphan-from-papers (informational).
 
-Regenerates index.md grouped by type, sorted by date (newest first within each group).
+Regenerates index.md grouped by type, sorted by date desc within each group.
 
 Exit code: 0 if no errors, 1 if any error-level issues found.
 """
@@ -23,9 +30,16 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-REQUIRED_FRONTMATTER = ("slug", "title", "source", "type", "ingested")
+REQUIRED_BY_TYPE = {
+    "paper": ("slug", "title", "source", "type", "ingested"),
+    "video": ("slug", "title", "source", "type", "ingested"),
+    "pdf": ("slug", "title", "source", "type", "ingested"),
+    "concept": ("slug", "title", "type", "ingested"),
+}
 WIKI_LINK_RE = re.compile(r"\[\[([^\]|#]+?)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
+
+PAPER_LIKE_TYPES = {"paper", "video", "pdf"}
 
 
 def parse_frontmatter(text: str) -> dict[str, object] | None:
@@ -56,14 +70,33 @@ def parse_frontmatter(text: str) -> dict[str, object] | None:
 
 
 def collect_pages(pages_dir: Path) -> dict[str, dict[str, object]]:
-    """Return {slug: {path, frontmatter, body}}."""
+    """Return {slug: {path, frontmatter, body, expected_subdir}} for every .md under pages/.
+
+    Recurses into subdirectories. Slugs are flat (filenames must be unique
+    across the whole pages/ tree); the subdirectory is purely cosmetic but
+    enforced to match the page's `type` (papers under papers/, concepts under
+    concepts/).
+    """
     result: dict[str, dict[str, object]] = {}
-    for md in sorted(pages_dir.glob("*.md")):
+    for md in sorted(pages_dir.rglob("*.md")):
         text = md.read_text(encoding="utf-8")
         fm = parse_frontmatter(text)
         body = text[FRONTMATTER_RE.match(text).end() :] if fm is not None else text
-        result[md.stem] = {"path": md, "frontmatter": fm, "body": body}
+        result[md.stem] = {
+            "path": md,
+            "frontmatter": fm,
+            "body": body,
+            "subdir": md.parent.name,
+        }
     return result
+
+
+def expected_subdir_for_type(ptype: str) -> str:
+    if ptype in PAPER_LIKE_TYPES:
+        return "papers"
+    if ptype == "concept":
+        return "concepts"
+    return ""  # unknown — don't enforce
 
 
 def main() -> int:
@@ -82,12 +115,22 @@ def main() -> int:
             sys.exit(f"missing {required} — run init.py first")
 
     schema = json.loads(schema_path.read_text())
-    predicates = set(schema.get("predicates", {}).keys())
+    predicates = schema.get("predicates", {})
     graph = json.loads(graph_path.read_text())
     pages = collect_pages(pages_dir)
 
     errors: list[str] = []
     warnings: list[str] = []
+
+    # Detect filename collisions across subdirs
+    seen_paths: dict[str, list[Path]] = defaultdict(list)
+    for slug, info in pages.items():
+        seen_paths[slug].append(info["path"])
+    for slug, paths in seen_paths.items():
+        if len(paths) > 1:
+            errors.append(
+                f"slug {slug!r} collides across subdirs: {[str(p.relative_to(wiki)) for p in paths]}"
+            )
 
     # 1. Per-page checks
     for slug, info in pages.items():
@@ -95,11 +138,25 @@ def main() -> int:
         if fm is None:
             errors.append(f"{slug}.md: missing or unparseable YAML frontmatter")
             continue
-        for field in REQUIRED_FRONTMATTER:
+        ptype = str(fm.get("type", "")).strip()
+        required_fields = REQUIRED_BY_TYPE.get(ptype)
+        if required_fields is None:
+            errors.append(
+                f"{slug}.md: unknown type {ptype!r} (expected one of {sorted(REQUIRED_BY_TYPE)})"
+            )
+            continue
+        for field in required_fields:
             if field not in fm or not fm[field]:
                 errors.append(f"{slug}.md: frontmatter missing '{field}'")
         if fm.get("slug") and fm["slug"] != slug:
             errors.append(f"{slug}.md: frontmatter slug={fm['slug']!r} doesn't match filename")
+        # Subdir matches type
+        expected = expected_subdir_for_type(ptype)
+        if expected and info["subdir"] != expected:
+            errors.append(
+                f"{slug}.md: type={ptype} but lives under pages/{info['subdir']}/, "
+                f"expected pages/{expected}/"
+            )
         # 2. Wiki-link resolution
         for m in WIKI_LINK_RE.finditer(info["body"]):
             target = m.group(1).strip()
@@ -116,39 +173,80 @@ def main() -> int:
     for slug in pages:
         if slug not in node_slugs:
             warnings.append(f"page {slug!r} not registered as a node in graph.json")
+
+    def page_type(slug: str) -> str | None:
+        fm = pages.get(slug, {}).get("frontmatter") or {}
+        return fm.get("type") if isinstance(fm, dict) else None
+
     for i, edge in enumerate(graph.get("edges", [])):
-        for endpoint in ("from", "to"):
-            slug = edge.get(endpoint)
+        f_slug = edge.get("from")
+        t_slug = edge.get("to")
+        for endpoint, slug in (("from", f_slug), ("to", t_slug)):
             if not slug:
                 errors.append(f"graph.json: edge[{i}] missing '{endpoint}'")
             elif slug not in pages:
                 errors.append(f"graph.json: edge[{i}] {endpoint}={slug!r} has no page")
-        pred = edge.get("predicate")
-        if not pred:
+        pred_name = edge.get("predicate")
+        if not pred_name:
             errors.append(f"graph.json: edge[{i}] missing 'predicate'")
-        elif pred not in predicates:
-            errors.append(f"graph.json: edge[{i}] predicate {pred!r} not in _schema.json")
+            continue
+        pred = predicates.get(pred_name)
+        if pred is None:
+            errors.append(f"graph.json: edge[{i}] predicate {pred_name!r} not in _schema.json")
+            continue
+        # Type-constraint enforcement
+        if isinstance(pred, dict):
+            for endpoint, slug, key in (("from", f_slug, "from_type"), ("to", t_slug, "to_type")):
+                expected_type = pred.get(key)
+                if not expected_type or expected_type == "*" or not slug or slug not in pages:
+                    continue
+                actual_type = page_type(slug)
+                # paper/video/pdf are interchangeable for predicates that say "paper"
+                if expected_type == "paper" and actual_type in PAPER_LIKE_TYPES:
+                    continue
+                if actual_type != expected_type:
+                    errors.append(
+                        f"graph.json: edge[{i}] predicate {pred_name!r} expects "
+                        f"{key}={expected_type}, but {endpoint}={slug!r} has type {actual_type!r}"
+                    )
 
-    # 4. Orphan-in (informational — no incoming edges)
+    # 4. Orphan checks (informational)
     incoming: dict[str, int] = defaultdict(int)
+    paper_to_concept: dict[str, int] = defaultdict(int)  # concept -> count of paper edges
     for edge in graph.get("edges", []):
         if edge.get("to") in pages:
             incoming[edge["to"]] += 1
-    for slug in pages:
+        if edge.get("predicate") in {"defines", "discusses", "introduces"}:
+            t = edge.get("to")
+            if t in pages and page_type(t) == "concept":
+                paper_to_concept[t] += 1
+    for slug, info in pages.items():
+        fm = info["frontmatter"] or {}
+        ptype = fm.get("type")
         if incoming[slug] == 0:
             warnings.append(f"page {slug!r} has no incoming edges (orphan-in)")
+        if ptype == "concept" and paper_to_concept[slug] == 0:
+            warnings.append(
+                f"concept {slug!r} has no paper discussing/defining/introducing it"
+            )
 
-    # 5. Regenerate index.md (grouped by type, sorted by date desc)
+    # 5. Regenerate index.md (grouped by type, sorted by date desc within group)
     by_type: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
     for slug, info in pages.items():
         fm = info["frontmatter"] or {}
         ptype = str(fm.get("type", "unknown"))
         title = str(fm.get("title", slug))
-        date = str(fm.get("date", ""))
+        date = str(fm.get("date", fm.get("ingested", "")))
         by_type[ptype].append((date, slug, title))
     lines = ["# Wiki", "", f"_{len(pages)} pages, {len(graph.get('edges', []))} edges._", ""]
-    for ptype in sorted(by_type):
-        lines.append(f"## {ptype}")
+    # Stable order: papers/videos/pdfs first, then concepts, then anything else
+    type_order = ["paper", "video", "pdf", "concept"]
+    other = sorted(set(by_type) - set(type_order))
+    for ptype in type_order + other:
+        if ptype not in by_type:
+            continue
+        heading = ptype.capitalize() + ("s" if not ptype.endswith("s") else "")
+        lines.append(f"## {heading}")
         lines.append("")
         for _, slug, title in sorted(by_type[ptype], reverse=True):
             lines.append(f"- [[{slug}|{title}]]")

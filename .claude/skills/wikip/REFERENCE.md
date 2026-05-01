@@ -1,26 +1,27 @@
 # wikip — Reference
 
-## Page schema
+Two kinds of pages live in a wikip wiki: **paper pages** (literature-review view of one source document) and **concept pages** (synthesised explanation of one idea, drawn from many papers in the corpus). They share a slug namespace and link to each other with typed predicates.
 
-Every page in `<wiki-dir>/pages/<slug>.md` has YAML frontmatter and a structured body.
+## Paper-page schema
+
+`pages/papers/<slug>.md` where `<slug>` is the source-dir basename (e.g. `arxiv-2003.02320`).
 
 ### Frontmatter
 
 ```yaml
 ---
 slug: arxiv-2003.02320           # filename stem; must match the file
-title: "Knowledge Graphs"        # human title (paper title, video title, etc.)
+title: "Knowledge Graphs (Hogan et al., 2020)"
 source: arxiv-2003.02320         # source-dir basename
-type: paper                      # paper | video | pdf | note
+type: paper                      # paper | video | pdf
 date: 2020-03                    # YYYY or YYYY-MM (best estimate)
 authors: [Hogan, Blomqvist, ...] # for papers/videos with named authors
 tags: [survey, tutorial]         # free-text tags
-concepts: [knowledge-graph, RDF, SPARQL, ontology, embedding]   # central concepts
 ingested: 2026-05-01             # date this page was written
 ---
 ```
 
-`slug`, `title`, `source`, `type`, `ingested` are required. The rest are optional but encouraged.
+`slug`, `title`, `source`, `type`, `ingested` are required.
 
 ### Body
 
@@ -34,8 +35,8 @@ Use these section headings, in this order, omitting any that don't apply:
 One paragraph. The motivation, the gap it fills, who should care.
 
 ## Key claims & contributions
-- Claim or contribution 1 (with source ref if useful — e.g., §3.2).
-- Claim or contribution 2.
+- Claim 1 (with source ref if useful — e.g., §3.2).
+- Claim 2.
 
 ## Methodology / approach
 How the document does what it does. Be concrete: data, model, formal framework.
@@ -43,101 +44,216 @@ How the document does what it does. Be concrete: data, model, formal framework.
 ## Results
 What was demonstrated, with numbers if the source has them.
 
-## Connections
-- `extends` [[other-paper-slug]] — one-line context: "builds on X's GNN encoder".
-- `compares-with` [[third-paper-slug]] — "argues against the closed-world assumption used there".
+## Concepts
+The central concepts this paper defines, introduces, or discusses, each
+linking to its concept page:
+- [[knowledge-graph]] — defines (the paper's anchor concept)
+- [[property-graph]] — discusses
+- [[reification]] — introduces three reification styles for KGs
 - ...
+
+## Connections
+Edges to other paper pages (mirroring graph.json):
+- `extends` [[other-paper-slug]] — one-line context.
+- `compares-with` [[third-paper-slug]] — "..."
 
 ## Open questions
 What the document leaves unanswered or what reviewers typically push back on.
 ```
 
-The **Connections** section mirrors the edges that go into `graph.json`. Use predicates exactly as defined in `_schema.json`.
+## Concept-page schema
+
+`pages/concepts/<slug>.md` where `<slug>` is a kebab-case concept name (e.g. `knowledge-graph`, `property-graph`, `reification`).
+
+### Frontmatter
+
+```yaml
+---
+slug: knowledge-graph
+title: "Knowledge Graph"
+type: concept
+aliases: [KG, knowledge graph]    # free-text variants used in literature
+parent: null                       # broader concept slug, or null for top-level
+papers: [arxiv-2003.02320, ...]    # papers that discuss/define/introduce this concept
+ingested: 2026-05-01               # date this page was first created
+updated: 2026-05-01                # date last modified by an ingest
+---
+```
+
+`slug`, `title`, `type`, `ingested` are required. `papers` should be kept in sync with the `defines`/`discusses`/`introduces` edges in graph.json.
+
+### Body
+
+Concept pages have flexible structure — write what the concept needs. A reasonable default:
+
+```markdown
+## Definition
+The canonical definition (or competing definitions if the concept is contested).
+Cite the paper that gave each definition: "[[arxiv-2003.02320]] defines a knowledge
+graph as 'a graph of data intended to accumulate and convey knowledge of the real
+world…'".
+
+## Variants / sub-concepts
+Different forms or specialisations:
+- [[directed-edge-labelled-graph]] — minimal model used by RDF
+- [[property-graph]] — richer model used by Neo4j
+- ...
+
+## Distinguishing features
+What separates this concept from related ones. What would make a reader say
+"this is a KG" vs "this is just a graph database"?
+
+## Relations
+- `is-a` [[graph-data-model]]    — concept→concept edges, mirroring graph.json
+- `alternative-to` [[ontology]]
+- ...
+
+## Examples
+Concrete instances drawn from the source papers (Wikidata, DBpedia, Google KG, …).
+
+## Open questions
+Aspects the literature hasn't settled, or where definitions diverge.
+
+## Discussed in
+- [[arxiv-2003.02320]] — defines and surveys (foundational tutorial).
+- [[arxiv-XXXX.XXXXX]] — uses without redefining.
+- ...
+```
+
+The "Discussed in" section mirrors the paper→concept edges in graph.json. The "Relations" section mirrors the concept→concept edges.
+
+### Updating an existing concept page
+
+When ingesting a paper that touches a concept already in the wiki:
+
+1. **Read** the existing concept page.
+2. **Decide** what the new paper adds:
+   - A new framing or alternative definition? → add to "Definition" with citation.
+   - A new variant or sub-concept? → add to "Variants" with citation.
+   - A concrete example? → add to "Examples".
+   - A new relation to another concept? → add to "Relations" + add edge to graph.json.
+   - Just another usage of an already-discussed concept? → just add to "Discussed in" + paper→concept edge.
+3. **Update** frontmatter: append the new paper to `papers:`, set `updated:` to today.
+4. **Resist duplication**: don't restate things already on the page; integrate.
+5. **Resist deletion**: don't remove existing content unless the new paper *contradicts* it; in that case, keep both with attribution ("[@A] argues X, while [@B] argues the opposite, citing…").
 
 ## Predicate vocabulary
 
-The default `_schema.json` ships with ten predicates. Use them as follows:
+The default `_schema.json` ships with 16 typed predicates. Each declares `from_type` and `to_type`. validate.py enforces these.
 
-| Predicate | Use when this page's document… | Example |
+### Paper → Paper (literature relations, 9)
+
+| Predicate | Use when this paper… | Example |
 |---|---|---|
 | `cites` | …explicitly references the other paper, with no stronger relation | "[Smith21] is cited as background reading" |
 | `extends` | …builds directly on the other paper's method, advancing or generalising it | "Our GNN extends the propagation rule of [Kipf17]" |
 | `compares-with` | …compares its approach against the other paper, side-by-side | "We benchmark against [Wang19] on FB15k" |
 | `criticizes` | …refutes, challenges, or substantively disagrees with the other paper | "Contra [Pearl09], we show that…" |
-| `formalizes` | …provides a formal definition for ideas the other paper introduces informally | "We formalise the notion of context proposed by [McCarthy93]" |
 | `applies` | …applies methods from the other paper to a new problem or domain | "We apply [Bordes13]'s TransE to biomedical KGs" |
-| `surveys` | …includes the other paper in its survey/review (use for survey papers) | A survey listing dozens of cited works |
+| `surveys` | …includes the other paper in its survey/review | A survey listing dozens of cited works |
 | `motivates` | …provides motivation/background that *the other paper* needs | "[Schneider72] motivates the term knowledge graph" |
 | `disambiguates` | …clarifies or distinguishes terms ambiguously used in the other paper | "We disambiguate [EhrlingerW16]'s definition" |
 | `same-topic` | …addresses the same topic without any direct relation above | Two papers on KGs that don't cite each other |
 
+### Paper → Concept (where the concept lives in the literature, 3)
+
+| Predicate | Use when this paper… | Example |
+|---|---|---|
+| `defines` | …gives a definition (formal or informal) for the concept | "[Hogan20] defines [[knowledge-graph]] as…" |
+| `discusses` | …uses or applies the concept without claiming to define it | "[Bordes13] uses [[knowledge-graph-embedding]] without redefining the term" |
+| `introduces` | …is the historical origin or canonical introduction of the concept | "[Schneider72] introduces [[knowledge-graph]]" |
+
+A paper can have multiple paper→concept edges to the same concept only if they're different predicates (e.g. `defines` AND `surveys` use of). Usually one is enough.
+
+### Concept → Concept (taxonomy / structure of ideas, 4)
+
+| Predicate | Use when this concept… | Example |
+|---|---|---|
+| `is-a` | …is a kind of, or instance of, the target concept (subclass, specialisation) | `property-graph is-a graph-data-model` |
+| `part-of` | …is a structural component of the target concept | `iri part-of rdf` |
+| `alternative-to` | …is a competing or alternative formulation of the same idea | `property-graph alternative-to directed-edge-labelled-graph` |
+| `related-to` | …is related to the target without any stronger relation above | `ontology related-to knowledge-graph` |
+
 ### Choosing a predicate
 
-Pick the **strongest applicable** predicate. If both `cites` and `extends` apply, use `extends`. If both `same-topic` and `compares-with` apply, use `compares-with`. Use `cites` only when no stronger predicate fits.
-
-`surveys` is the only one-to-many predicate by convention — a survey paper will have many `surveys` edges.
+Pick the **strongest applicable** predicate. If both `cites` and `extends` apply, use `extends`. If both `is-a` and `related-to` apply, use `is-a`. Use `cites` / `related-to` only when no stronger predicate fits.
 
 ### Adding predicates
 
-Edit `_schema.json` directly. New predicates should describe relations between *whole documents* (which is the page granularity), not between concepts within a document. If you find yourself wanting "Page A `defines` concept X" — use the `concepts:` frontmatter on Page A instead.
-
-When `merge.py` reconciles two `_schema.json` files, it errors if a predicate is defined differently in each — resolve manually.
+Edit `_schema.json` directly. Each entry must declare `from_type` and `to_type` (use `"*"` to allow any). When `merge.py` reconciles two `_schema.json` files, it errors if a predicate is defined differently in each — resolve manually.
 
 ## graph.json schema
 
 ```json
 {
   "nodes": [
-    {"slug": "arxiv-2003.02320", "title": "Knowledge Graphs", "type": "paper"}
+    {"slug": "arxiv-2003.02320", "title": "Knowledge Graphs", "type": "paper"},
+    {"slug": "knowledge-graph",  "title": "Knowledge Graph",  "type": "concept"}
   ],
   "edges": [
     {
       "from": "arxiv-2003.02320",
-      "to": "arxiv-1503.00759",
-      "predicate": "cites",
-      "context": "Cited as foundational work on KG embeddings."
+      "to": "knowledge-graph",
+      "predicate": "defines",
+      "context": "Adopts an inclusive definition: 'a graph of data intended to accumulate…'"
+    },
+    {
+      "from": "property-graph",
+      "to": "directed-edge-labelled-graph",
+      "predicate": "alternative-to",
+      "context": "Both model graph-structured data; property graphs add property-value pairs and labels to edges and nodes."
     }
   ]
 }
 ```
 
-Edges are keyed by `from`. `validate.py` enforces that:
-- Every `from` and `to` is a slug for which `pages/<slug>.md` exists.
-- Every `predicate` appears in `_schema.json`.
-- Every `from` slug also appears in `nodes`.
+validate.py enforces:
 
-When re-running wikip on a source that already has edges, **replace** all edges with that `from` slug rather than appending — this keeps the graph consistent with the page body when the page is rewritten.
+- Every `from`/`to` is a slug for which `pages/<subdir>/<slug>.md` exists.
+- Every `predicate` appears in `_schema.json`.
+- Every node corresponds to an existing page.
+- Edge endpoints satisfy the predicate's `from_type` / `to_type` constraints. (Predicates that say `from_type: paper` accept any paper-like type — `paper`, `video`, `pdf` — but not `concept`.)
 
 ## Source-type readers
 
-When implementing the read step in workflow point 3:
-
 | Source type | What to read | Notes |
 |---|---|---|
-| arxiv-fetch | `raw/structure.json` for section list, then walk `raw/sections/*.tex` in order. Read `raw/preamble.tex` once for macro context. Pull metadata from `raw/arxiv_meta.json` (title, authors, abstract, primary_class). | TikZ figures will be visible as raw LaTeX — ignore. Custom macros from preamble.tex give context but don't need rendering. |
-| video-to-booklet | `booklet.md` is the prose. `<source-dir>/output/<title>/booklet.md` is the canonical path. Pull title from the booklet H1 and authors from the video metadata if available. | Booklets are already markdown — just synthesise; don't re-render. |
-| pdf-extract | `content.md` for prose, `metadata.json` for header info. | If `pdf_profile.json` has `unreliable: true`, flag it in the Open questions section. |
+| arxiv-fetch | `raw/structure.json` for section list, then walk `raw/sections/*.tex` in order. Read `raw/preamble.tex` once for macro context. Pull metadata from `raw/arxiv_meta.json`. | TikZ figures will appear as raw LaTeX — ignore. Custom macros from preamble.tex give context but don't need rendering. |
+| video-to-booklet | `booklet.md` is the prose; pull title from the H1 and authors from video metadata if available. | Booklets are already markdown — just synthesise. |
+| pdf-extract | `content.md` for prose, `metadata.json` for header info. If `pdf_profile.json` has `unreliable: true`, flag it in the paper page's "Open questions". | |
 
 ## Merging two wikis
 
 `merge.py source-wiki --into target-wiki [--on-conflict=skip|replace|rename]`:
 
-- **Pages**: if a slug exists in both wikis:
+- **Pages**: preserved-subdir copy. On slug clash:
   - `skip`: keep target's page, ignore source's.
   - `replace`: source's page overwrites target's.
-  - `rename`: source's page is added with a `-2` suffix on the slug; edges from the source wiki are rewritten to the new slug.
-- **graph.json**: union of edges, deduplicated by `(from, to, predicate)` triple.
-- **_schema.json**: union of predicates. If a predicate name appears in both with different descriptions, errors out — resolve manually.
-- **index.md**: regenerated post-merge.
+  - `rename`: source's page is added with a `-2` suffix; edges in the source graph referencing the old slug are rewritten to the new slug. Frontmatter `slug` field is updated in the renamed page.
+- **graph.json**: union of nodes and edges, edges deduplicated by `(from, to, predicate)`.
+- **_schema.json**: union of predicates. If a predicate name appears in both with different definitions, errors out — resolve manually.
+- **index.md**: not regenerated; run validate.py after.
 
-## Worked example
+## Worked example: ingesting a second paper
 
-Given a corpus wiki with one page (`arxiv-2003.02320` — Hogan et al. KG survey), ingest a second paper `arxiv-1503.00759` (Nickel et al., "A Review of Relational Machine Learning"):
+Initial state: corpus has one paper page (`arxiv-2003.02320`, the Hogan KG survey) and a set of concept pages it created (`knowledge-graph`, `property-graph`, `rdf`, …).
 
-1. Survey existing wiki: pages = `[arxiv-2003.02320]`, predicates = default ten.
-2. Read `documents/arxiv-1503.00759/raw/sections/*.tex`.
-3. Plan: TL;DR (relational ML for KGs), key claims (tensor factorisation models, statistical relational learning), methodology (decomposes RESCAL/TransE/etc.).
-4. Connections: this paper precedes the Hogan survey; the Hogan survey `cites` and `surveys` it. Since this is the *new* paper and we're writing *its* page, the edge goes the other way: `arxiv-1503.00759` `motivates` `arxiv-2003.02320`? No — that's not quite right. `motivates` would mean this paper motivates the other. Closer: this paper has no edges *to* the Hogan survey because it predates it. The Hogan survey's edges *to* this paper would be `cites`/`surveys` — but those edges already exist in the Hogan page. So this new page might have zero outgoing edges, which is fine.
-5. Write `pages/arxiv-1503.00759.md`.
-6. Append node to `graph.json`.
-7. Validate. The new page is "orphan-out" (no outgoing edges) but not "orphan-in" (the Hogan survey points to it via `surveys`). validate.py flags orphans-in only — orphan-out is normal for foundational/older papers in a corpus.
+Ingesting `arxiv-1503.00759` (Nickel et al., "A Review of Relational Machine Learning"):
+
+1. **Survey**: existing concept pages include `knowledge-graph`, `property-graph`, `rdf`, `knowledge-graph-embedding`, `ontology`, …
+2. **Read source**: walk Nickel's sections.
+3. **Plan paper page**: TL;DR (relational ML for KGs), key claims (tensor factorisation models, statistical relational learning), methodology (decomposes RESCAL/TransE/etc.). Concepts covered: `knowledge-graph` (uses), `knowledge-graph-embedding` (defines / canonical reference), `tensor-factorisation` (introduces — new concept page), `relational-learning` (introduces — new concept page).
+4. **Plan concept pages**:
+   - `knowledge-graph` exists → update: add Nickel to `papers:`, integrate Nickel's view (which is more ML-flavoured than Hogan's data-management view).
+   - `knowledge-graph-embedding` exists → update: this is the *canonical* introduction; mark Nickel as the introducer in the Definition.
+   - `tensor-factorisation` doesn't exist → create.
+   - `relational-learning` doesn't exist → create.
+5. **Write paper page** at `pages/papers/arxiv-1503.00759.md`.
+6. **Update graph.json**:
+   - Add nodes for `arxiv-1503.00759`, `tensor-factorisation`, `relational-learning`.
+   - Edges: `arxiv-1503.00759 —[discusses]→ knowledge-graph`, `arxiv-1503.00759 —[introduces]→ knowledge-graph-embedding`, `arxiv-1503.00759 —[introduces]→ tensor-factorisation`, `arxiv-1503.00759 —[introduces]→ relational-learning`.
+   - Concept-concept edges: `tensor-factorisation —[part-of]→ knowledge-graph-embedding`, `relational-learning —[related-to]→ knowledge-graph-embedding`.
+   - paper→paper edges: probably none here — Nickel predates Hogan, and Hogan's existing edges already cover the citation in the *other* direction.
+7. **Validate**, regenerate index.md.
+
+After this, the wiki has 1 + 1 = 2 paper pages and (e.g.) 12 concept pages, with the graph reflecting both bibliographic and conceptual structure. A reader exploring `[[knowledge-graph]]` now sees Nickel and Hogan as discussing it; a reader exploring `[[knowledge-graph-embedding]]` sees the canonical introduction (Nickel) and the survey treatment (Hogan).

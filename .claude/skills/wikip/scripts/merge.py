@@ -5,14 +5,15 @@ Usage:
       [--on-conflict={skip|replace|rename}]
 
 Behaviour:
-  - Pages: copy from source/pages into target/pages.
+  - Pages: copy from source/pages/<subdir>/ into target/pages/<subdir>/, preserving
+    the subdirectory layout (papers/ vs concepts/).
       skip:    keep target's page on slug clash; ignore source's.
       replace: source's page overwrites target's.
       rename:  source's page is added with a "-2" suffix; edges referencing
                the old slug in the source graph are rewritten to the new slug.
   - graph.json: union of nodes and edges. Edges deduplicated by (from, to, predicate).
   - _schema.json: union of predicates. Errors out if a predicate name appears
-                  in both with different descriptions — resolve manually.
+                  in both with different definitions — resolve manually.
   - index.md: not regenerated here. Run validate.py afterwards.
 """
 
@@ -48,24 +49,24 @@ def main() -> int:
     if not (src / "pages").exists() or not (tgt / "pages").exists():
         sys.exit("both source and target must already be initialised wikis (pages/ dir present)")
 
-    # 1. Reconcile schemas
+    # 1. Reconcile schemas (predicates may be either str descriptions or dicts)
     src_schema = load(src / "_schema.json").get("predicates", {})
     tgt_schema = load(tgt / "_schema.json").get("predicates", {})
     merged_predicates = dict(tgt_schema)
-    for name, desc in src_schema.items():
-        if name in merged_predicates and merged_predicates[name] != desc:
+    for name, defn in src_schema.items():
+        if name in merged_predicates and merged_predicates[name] != defn:
             sys.exit(
                 f"predicate {name!r} differs between wikis:\n"
-                f"  target: {merged_predicates[name]}\n"
-                f"  source: {desc}\n"
+                f"  target: {json.dumps(merged_predicates[name])}\n"
+                f"  source: {json.dumps(defn)}\n"
                 f"resolve manually in _schema.json before merging"
             )
-        merged_predicates[name] = desc
+        merged_predicates[name] = defn
 
-    # 2. Resolve page conflicts and decide slug rewrites
+    # 2. Resolve page conflicts (recurse into subdirs, slugs are flat)
     rewrites: dict[str, str] = {}
-    src_pages = sorted((src / "pages").glob("*.md"))
-    tgt_slugs = {p.stem for p in (tgt / "pages").glob("*.md")}
+    src_pages = sorted((src / "pages").rglob("*.md"))
+    tgt_slugs = {p.stem for p in (tgt / "pages").rglob("*.md")}
     page_actions: list[tuple[Path, str, str]] = []  # (src_path, action, dest_slug)
     for sp in src_pages:
         slug = sp.stem
@@ -85,34 +86,38 @@ def main() -> int:
             rewrites[slug] = new_slug
             page_actions.append((sp, "rename", new_slug))
 
-    # 3. Apply page actions
+    # 3. Apply page actions, preserving subdir structure
     for sp, action, dest_slug in page_actions:
-        dest = tgt / "pages" / f"{dest_slug}.md"
+        rel_subdir = sp.relative_to(src / "pages").parent
+        dest_dir = tgt / "pages" / rel_subdir
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / f"{dest_slug}.md"
         if action == "skip":
-            print(f"  skip: {sp.name} (target has it)")
+            print(f"  skip: {sp.relative_to(src)} (target has it)")
         elif action == "copy":
             shutil.copy2(sp, dest)
-            print(f"  copy: {sp.name}")
+            print(f"  copy: {sp.relative_to(src)}")
         elif action == "replace":
             shutil.copy2(sp, dest)
-            print(f"  replace: {sp.name}")
+            print(f"  replace: {sp.relative_to(src)}")
         elif action == "rename":
             text = sp.read_text(encoding="utf-8")
             # Rewrite the slug field in frontmatter
             text = text.replace(f"slug: {sp.stem}", f"slug: {dest_slug}", 1)
             dest.write_text(text)
-            print(f"  rename: {sp.name} -> {dest_slug}.md")
+            print(f"  rename: {sp.relative_to(src)} -> {dest.relative_to(tgt)}")
 
     # 4. Merge graphs
     src_graph = load(src / "graph.json")
     tgt_graph = load(tgt / "graph.json")
     merged_nodes = {n["slug"]: n for n in tgt_graph.get("nodes", []) if n.get("slug")}
+    skipped_slugs = {a[2] for a in page_actions if a[1] == "skip"}
     for n in src_graph.get("nodes", []):
         slug = n.get("slug")
         if not slug:
             continue
         new_slug = rewrites.get(slug, slug)
-        if any(a[2] == new_slug and a[1] == "skip" for a in page_actions):
+        if new_slug in skipped_slugs:
             continue
         merged_nodes[new_slug] = {**n, "slug": new_slug}
 
@@ -126,9 +131,7 @@ def main() -> int:
     for e in src_graph.get("edges", []):
         f = rewrites.get(e.get("from", ""), e.get("from", ""))
         t = rewrites.get(e.get("to", ""), e.get("to", ""))
-        # Skip edges touching pages we skipped on conflict
-        skipped = {a[2] for a in page_actions if a[1] == "skip"}
-        if f in skipped or t in skipped:
+        if f in skipped_slugs or t in skipped_slugs:
             continue
         new_edge = {**e, "from": f, "to": t}
         key = (f, t, e.get("predicate", ""))
