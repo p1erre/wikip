@@ -36,7 +36,7 @@ def load_graph(wiki_dir: Path) -> dict:
 
 def audit(graph: dict) -> list[dict]:
     concepts = [n for n in graph["nodes"] if n["type"] == "concept"]
-    papers = {n["slug"] for n in graph["nodes"] if n["type"] == "paper"}
+    papers = {n["slug"] for n in graph["nodes"] if n["type"] in ("paper", "video", "pdf")}
 
     in_edges: dict[str, list[dict]] = defaultdict(list)
     for e in graph["edges"]:
