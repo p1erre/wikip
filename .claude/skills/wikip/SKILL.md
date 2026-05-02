@@ -1,6 +1,6 @@
 ---
 name: wikip
-description: Synthesise a paper, video booklet, or other source document into a corpus wiki, producing both a paper page (literature-review view of the source) and concept pages (synthesised explanations of the ideas the source introduces or uses). Pages are linked by typed predicates from a constrained vocabulary (paper→paper, paper→concept, concept→concept) forming a knowledge graph between pages. Reads the source bundle (arxiv-fetch's raw/, video-to-booklet's booklet.md, or pdf-extract's content.md), surveys the corpus wiki, writes/updates Obsidian-flavour pages, and updates graph.json. Use when the user asks to ingest a paper/video/document into the wiki, build a wiki from a corpus progressively, or merge two wikis.
+description: Synthesise a paper, video booklet, or other source document into a corpus wiki, producing both a paper page (literature-review view of the source) and concept pages (synthesised explanations of the ideas the source introduces or uses). Pages are linked by typed predicates from a constrained vocabulary (paper→paper, paper→concept, concept→concept) forming a knowledge graph between pages. Reads the source bundle (arxiv-fetch's raw/, video-to-booklet's booklet.md, pdf-extract's content.md, or web-fetch's content.md), surveys the corpus wiki, writes/updates Obsidian-flavour pages, and updates graph.json. Use when the user asks to ingest a paper/video/document into the wiki, build a wiki from a corpus progressively, or merge two wikis.
 ---
 
 # wikip
@@ -12,7 +12,8 @@ Turn one source document into one paper page **plus a set of concept pages** (cr
 - **source-dir** (required) — a document bundle. Detect type by file presence:
   - `raw/structure.json` present → arxiv-fetch output (read `raw/sections/*.tex` per `raw/structure.json`, plus `raw/arxiv_meta.json`).
   - `booklet.md` present → video-to-booklet output (read `booklet.md` plus `chapters.json` if present).
-  - `content.md` + `metadata.json` present → pdf-extract output.
+  - `content.md` + `web_profile.json` present → web-fetch output (read `content.md` plus `metadata.json`; URL/site/author live in `metadata.json`).
+  - `content.md` + `metadata.json` present (no `web_profile.json`) → pdf-extract output.
 - **wiki-dir** (required) — corpus wiki directory, e.g. `wiki/`. Initialise first if missing.
 
 ## Workflow
