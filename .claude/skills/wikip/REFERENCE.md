@@ -25,6 +25,8 @@ ingested: 2026-05-01             # date this page was written
 
 ### Body
 
+**No figures.** Paper pages must not contain markdown image embeds (`![alt](path)`). Figures belong on concept pages, where they teach a concept; the paper page's job is to summarise. Reference the relevant concept page instead — *"see [[chain-of-table]] for the comparison figure"*. validate.py enforces this.
+
 Use these section headings, in this order, omitting any that don't apply:
 
 ```markdown
@@ -263,7 +265,7 @@ For arxiv-fetch sources, `raw/figures.json` is the manifest of every figure in t
 
    If `tikz_sources` is large or noisy, just include the caption with the backlink and skip the source block.
 
-6. **Don't embed figures on paper pages**, only on concept pages. The paper page's job is to summarise; the concept page's job is to teach a concept, where the figure is doing real semantic work.
+6. **Don't embed figures on paper pages**, only on concept pages. The paper page's job is to summarise; the concept page's job is to teach a concept, where the figure is doing real semantic work. validate.py errors on image embeds in paper-like pages — if a figure feels paper-page-shaped, it's actually concept-page-shaped, and naming the right concept usually unblocks the placement.
 
 7. **Multiple papers, same concept**: when a second paper is ingested that adds figures relating to an existing concept, merge them into the same concept page, attributing each figure to the paper it came from. Don't duplicate figures across pages.
 

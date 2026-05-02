@@ -7,6 +7,11 @@ Checks:
   - Frontmatter slug matches the filename stem.
   - Pages live under pages/papers/ or pages/concepts/ matching their type.
   - Every [[wiki-link]] in page bodies resolves to an existing page.
+  - Paper-like pages (paper, video, pdf) contain no markdown image embeds.
+    Figures belong on concept pages, where they teach a concept; paper pages
+    summarise and link out. Embedding on a paper page also breaks rendering
+    when the user opens a parent directory as the Obsidian vault, since
+    `../../assets/...` then walks outside the vault.
   - Every edge in graph.json has from/to slugs that exist as pages.
   - Every edge predicate is defined in _schema.json.
   - For predicates that declare from_type / to_type, edge endpoints have the
@@ -38,6 +43,8 @@ REQUIRED_BY_TYPE = {
 }
 WIKI_LINK_RE = re.compile(r"\[\[([^\]|#]+?)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
+# Markdown image embed: ![alt](path). Greedy on alt for ergonomics, conservative on path.
+IMAGE_EMBED_RE = re.compile(r"!\[[^\]]*\]\([^)]+\)")
 
 PAPER_LIKE_TYPES = {"paper", "video", "pdf"}
 
@@ -162,6 +169,17 @@ def main() -> int:
             target = m.group(1).strip()
             if target not in pages:
                 errors.append(f"{slug}.md: broken [[wiki-link]] to '{target}'")
+        # 2b. Paper-like pages must not embed figures.
+        # Figures belong on concept pages, where they teach a concept; paper
+        # pages summarise and link out. (Embedding on a paper page also breaks
+        # in Obsidian when the user opens a parent dir as the vault.)
+        if ptype in PAPER_LIKE_TYPES:
+            embeds = IMAGE_EMBED_RE.findall(info["body"])
+            for embed in embeds:
+                errors.append(
+                    f"{slug}.md: image embed on paper page is not allowed — "
+                    f"move the figure to a concept page that uses it ({embed})"
+                )
 
     # 3. Graph checks
     node_slugs = {n.get("slug") for n in graph.get("nodes", []) if n.get("slug")}
