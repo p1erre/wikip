@@ -84,6 +84,14 @@ uv run python3 .claude/skills/wikip/scripts/merge.py <source-wiki> --into <targe
 ```
 Handles slug clashes via `--on-conflict={skip,replace,rename}`. Preserves the `papers/` vs `concepts/` subdir layout. Unions `graph.json`. Reconciles `_schema.json` — errors out if predicate definitions diverge so the user resolves explicitly.
 
+## Auditing a wiki
+
+To find under-developed concepts — ingest opportunities that the graph itself surfaces:
+```bash
+uv run python3 .claude/skills/wikip/scripts/audit.py <wiki-dir>
+```
+Prints four buckets: (A) concepts mentioned but never `defines`d — ingest the foundational paper; (B) orphan concepts with no incoming edges; (C) single-paper concepts a sibling paper would deepen; (D) weakly anchored concepts (only `related-to` from other concepts, no `is-a` / `part-of`). Run when the user asks to audit the wiki, find gaps, or decide what to ingest next; the bucket-A top entry is usually the highest-leverage next ingest. Bucket D over-flags root-of-tree concepts (e.g. the wiki's anchor concept naturally has no ancestors), so interpret with judgment rather than treating as error.
+
 ## Idempotency
 
 - **Page rewriting**: if `pages/papers/<slug>.md` already exists, ask the user before overwriting. Concept pages are *always* updated rather than overwritten — read the existing page, integrate the new paper's contribution, write back.
