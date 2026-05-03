@@ -1,13 +1,20 @@
 ---
 name: web-fetch
-description: Fetch a web page and prepare it as a structured bundle for downstream wiki ingestion — clean markdown with images downloaded locally, math preserved as LaTeX, and inline SVG figures extracted to files. Use when the user gives a URL (blog post, research write-up, docs page, online book) and wants to ingest it into a corpus wiki, or whenever the wikip skill needs a web source. Output bundle mirrors pdf-extract's shape so wikip detects it automatically.
+description: Fetch a web page (or an entire documentation section) and prepare it as a structured bundle for downstream wiki ingestion — clean markdown with images downloaded locally, math preserved as LaTeX, and inline SVG figures extracted to files. Use when the user gives a URL (blog post, research write-up, docs page, online book) and wants to ingest it into a corpus wiki, or whenever the wikip skill needs a web source. For JS-rendered documentation sites with many pages under a nav menu (Next.js, Docusaurus, MkDocs, GitBook…), use the multi-page crawl mode. Output bundle mirrors pdf-extract's shape so wikip detects it automatically.
 ---
 
 # web-fetch
 
-Fetch a single web page and lay out a content bundle that the downstream `wikip` skill (or any other consumer) can read directly. Designed for **research-blog-shaped pages** with prose, figures, and math: things like distill.pub, lilianweng.github.io, Anthropic / OpenAI / Karpathy blog posts, and HTML books. Output mirrors `pdf-extract` so `wikip` consumes it without special-casing.
+Two modes:
 
-## Inputs
+- **Single page** (`fetch.py`) — a research-blog-shaped page with prose, figures, and math. Designed for distill.pub, lilianweng.github.io, Anthropic / OpenAI / Karpathy blog posts, HTML books.
+- **Multi-page crawl** (`crawl.py`) — a documentation section spread across many JS-rendered pages under a shared nav menu (Next.js docs sites, Docusaurus, MkDocs, GitBook, docs.*.ai, developer portals). Discovers all nav links under a path prefix, fetches each page, stitches into one combined `content.md`. Use when the source is a vendor documentation site with 5–40 pages in a section.
+
+Both modes output the same bundle shape so `wikip` consumes either without special-casing.
+
+## Mode 1 — Single page (`fetch.py`)
+
+### Inputs
 
 - **url** (required) — fully-qualified `http(s)://` URL.
 - **out-dir** (required) — where to write outputs (e.g., `work/<corpus>/documents/<doc-slug>/`). The basename becomes the wiki paper-slug.
@@ -17,7 +24,7 @@ Fetch a single web page and lay out a content bundle that the downstream `wikip`
 - **--no-images** (optional) — skip image download (markdown still references original remote URLs).
 - **--max-image-bytes** (optional, default 10 MB) — cap individual image size.
 
-## What to do
+### What to do
 
 1. Run the fetcher:
    ```bash
@@ -30,17 +37,66 @@ Fetch a single web page and lay out a content bundle that the downstream `wikip`
    - Any `warnings` (image download failures, MathML without TeX annotation, etc.).
 3. If Playwright was *not* used and the result looks thin (e.g., very short `content.md`, or 0 paragraphs of prose), suggest re-running with `--playwright` for SPA support.
 
-## Output structure
+---
+
+## Mode 2 — Multi-page crawl (`crawl.py`)
+
+Use when the source is a **documentation site** where a section spans multiple JS-rendered pages linked through a nav menu. Examples: docs.c3.ai, docs.palantir.com, Docusaurus/MkDocs/GitBook sites, developer portals.
+
+**Signal to use crawl.py instead of fetch.py:**
+- The URL is a docs site (pattern: `/docs/`, `/documentation/`, `/reference/`)
+- The nav sidebar links to 5–40 pages in the same section
+- Running `fetch.py` produces thin content (< 500 words) because the page is JS-rendered and the nav dominates
+
+### Inputs
+
+- **url** (required) — seed URL; nav links are discovered from this page.
+- **out-dir** (required) — output directory.
+- **--path-prefix** (optional) — only follow links whose URL starts with this prefix. Default: same directory as seed URL (e.g., seed `https://docs.example.com/platform/8.9/topic/overview` → prefix `https://docs.example.com/platform/8.9/topic`).
+- **--max-pages** (optional, default 40) — safety cap.
+- **--delay** (optional, default 0.5s) — polite inter-page delay.
+- **--user-agent** (optional).
+- **--timeout** (optional, default 30s per page).
+
+### What to do
+
+1. **Decide on path-prefix.** Look at the seed URL. The prefix should be specific enough to stay within the relevant section but broad enough to catch all its pages. For `https://docs.c3.ai/docs/platform/8.9/topic/ts-overview` the right prefix is `https://docs.c3.ai/docs/platform/8.9/topic`.
+
+2. **Run the crawl:**
+   ```bash
+   uv run python3 .claude/skills/web-fetch/scripts/crawl.py "<seed-url>" \
+     --out-dir "<out_dir>" \
+     --path-prefix "<prefix>"
+   ```
+
+3. **Inspect the result.** Read `web_profile.json`:
+   - `pages_crawled` — list of `{title, url}` objects for every page successfully extracted. Verify the count is plausible.
+   - `warnings` — auth-gated pages are logged here (not errors). Thin pages that were skipped are also listed.
+   - Check `content.md` line count and spot-check a middle section for quality.
+
+4. **Auth-gated pages are expected and OK.** Many vendor doc sites gate their API reference pages behind login. `crawl.py` logs these as warnings and continues — the publicly accessible conceptual/tutorial pages (usually the ones you need for the wiki) are still captured.
+
+5. **If section coverage seems wrong,** adjust `--path-prefix`. Too broad → picks up unrelated sections. Too narrow → misses sub-pages. The `web_profile.json` `pages_crawled` list shows exactly which URLs were included.
+
+### Failure modes specific to multi-page crawl
+
+- **All pages 0 words / auth-gated**: the entire section is behind login. Fall back to the single-page `fetch.py` on a publicly available overview page, or use a different source (vendor whitepaper, API reference PDF, etc.).
+- **Nav links not discovered**: the site uses a non-standard nav structure. Try navigating to a sub-page (e.g., `typesys-overview`) rather than the top-level overview — some sites only expand the nav tree when you're on a child page.
+- **Too many pages**: tighten `--path-prefix` to a deeper path, or use `--max-pages`.
+- **Content too thin per page**: `extract_article_body` relies on "Print page" and similar footer markers as content-start signals. If the site uses different patterns, check `web_profile.json` warnings and adjust `_CONTENT_MARKERS` / `_FOOTER_MARKERS` in `crawl.py`.
+
+## Output structure (both modes)
 
 ```
 <out_dir>/
-  content.md          markdown body with YAML frontmatter; $...$ / $$...$$ for math; ![alt](figures/…) for images
-  figures/            downloaded raster figures + extracted inline SVGs (sha-suffixed for dedupe)
-  metadata.json       {url, final_url, title, author, published, modified, site_name, description, language, fetched_at}
-  web_profile.json    {fetcher, extractor, math: {...}, images: {...}, inline_svgs, warnings: [...]}
+  content.md          markdown; YAML frontmatter + body. Multi-page: one ## section per page.
+  figures/            (single-page only) downloaded raster figures + inline SVGs
+  metadata.json       {url, final_url, title, author, published, site_name, fetched_at, [pages_crawled]}
+  web_profile.json    {fetcher, extractor, math, images, warnings, [pages_crawled: [{title, url}]]}
 ```
 
-This is intentionally the same shape as `pdf-extract` (`content.md` + `metadata.json` + `figures/`), so `wikip` detects it automatically. The presence of `web_profile.json` (instead of `pdf_profile.json`) is the disambiguator.
+- `fetcher` is `"httpx"` / `"playwright"` (single-page) or `"playwright-multi"` (crawl).
+- Both shapes are identical to `pdf-extract` (`content.md` + `metadata.json`), so `wikip` detects either automatically. The presence of `web_profile.json` (instead of `pdf_profile.json`) is the disambiguator.
 
 ## How it works
 
