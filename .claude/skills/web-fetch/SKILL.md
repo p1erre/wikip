@@ -46,56 +46,85 @@ Use when the source is a **documentation site** where a section spans multiple J
 **Signal to use crawl.py instead of fetch.py:**
 - The URL is a docs site (pattern: `/docs/`, `/documentation/`, `/reference/`)
 - The nav sidebar links to 5–40 pages in the same section
-- Running `fetch.py` produces thin content (< 500 words) because the page is JS-rendered and the nav dominates
+
+### Architecture
+
+`crawl.py` has one responsibility: **URL discovery + stitching**. Per-page extraction is fully delegated to `fetch.py`:
+
+```
+crawl.py                          fetch.py (called once per URL as subprocess)
+────────────────────────────────  ──────────────────────────────────────────────
+Playwright: load seed URL         Readability / chrome-strip extraction
+Evaluate JS → collect nav links   Math recovery (LaTeX)
+For each URL → subprocess →       Image download → figures/
+  read content.md                 SVG extraction
+  strip frontmatter               Full markdown output
+  check word count
+Merge all figures/ → one dir
+Stitch → combined content.md
+Write web_profile.json
+```
+
+This design is **regression-invariant**: any fix or improvement to `fetch.py` automatically benefits multi-page crawls. `crawl.py` contains no extraction logic of its own.
 
 ### Inputs
 
 - **url** (required) — seed URL; nav links are discovered from this page.
 - **out-dir** (required) — output directory.
-- **--path-prefix** (optional) — only follow links whose URL starts with this prefix. Default: same directory as seed URL (e.g., seed `https://docs.example.com/platform/8.9/topic/overview` → prefix `https://docs.example.com/platform/8.9/topic`).
+- **--path-prefix** (optional) — only follow links whose URL starts with this prefix. Default: same directory as seed URL.
 - **--max-pages** (optional, default 40) — safety cap.
 - **--delay** (optional, default 0.5s) — polite inter-page delay.
 - **--user-agent** (optional).
-- **--timeout** (optional, default 30s per page).
+- **--timeout** (optional, default 30s, passed to fetch.py per page).
+
+### Output structure
+
+```
+<out-dir>/
+  content.md        combined markdown; image refs all point to figures/
+  figures/          all images from all pages, merged (sha names = no collisions)
+  metadata.json
+  web_profile.json  fetcher:"playwright-multi", aggregated image/math stats
+  .pages/<slug>/    per-page fetch.py output kept for inspection/debugging
+```
 
 ### What to do
 
-1. **Decide on path-prefix.** Look at the seed URL. The prefix should be specific enough to stay within the relevant section but broad enough to catch all its pages. For `https://docs.c3.ai/docs/platform/8.9/topic/ts-overview` the right prefix is `https://docs.c3.ai/docs/platform/8.9/topic`.
+1. **Decide on path-prefix.** For `https://docs.c3.ai/docs/platform/8.9/topic/ts-overview` the right prefix is `https://docs.c3.ai/docs/platform/8.9/topic`.
 
 2. **Run the crawl:**
    ```bash
    uv run python3 .claude/skills/web-fetch/scripts/crawl.py "<seed-url>" \
      --out-dir "<out_dir>" \
-     --path-prefix "<prefix>"
+     --path-prefix "<prefix>" \
+     --timeout 60
    ```
 
 3. **Inspect the result.** Read `web_profile.json`:
-   - `pages_crawled` — list of `{title, url}` objects for every page successfully extracted. Verify the count is plausible.
-   - `warnings` — auth-gated pages are logged here (not errors). Thin pages that were skipped are also listed.
-   - Check `content.md` line count and spot-check a middle section for quality.
+   - `pages_crawled` — `{title, url}` for every successfully extracted page.
+   - `images.downloaded` — total images across all pages.
+   - `warnings` — auth-gated and thin pages logged here (not errors).
 
-4. **Auth-gated pages are expected and OK.** Many vendor doc sites gate their API reference pages behind login. `crawl.py` logs these as warnings and continues — the publicly accessible conceptual/tutorial pages (usually the ones you need for the wiki) are still captured.
+4. **Auth-gated pages are expected and OK.** `crawl.py` logs them as warnings and continues.
 
-5. **If section coverage seems wrong,** adjust `--path-prefix`. Too broad → picks up unrelated sections. Too narrow → misses sub-pages. The `web_profile.json` `pages_crawled` list shows exactly which URLs were included.
+5. **If coverage is wrong,** adjust `--path-prefix` and check `.pages/<slug>/` to inspect what fetch.py produced for a specific page.
 
-### Failure modes specific to multi-page crawl
+### Failure modes
 
-- **All pages 0 words / auth-gated**: the entire section is behind login. Fall back to the single-page `fetch.py` on a publicly available overview page, or use a different source (vendor whitepaper, API reference PDF, etc.).
-- **Nav links not discovered**: the site uses a non-standard nav structure. Try navigating to a sub-page (e.g., `typesys-overview`) rather than the top-level overview — some sites only expand the nav tree when you're on a child page.
-- **Too many pages**: tighten `--path-prefix` to a deeper path, or use `--max-pages`.
-- **Content too thin per page (all pages ~80 words)**: Two known causes:
-  - *CSS selector path + footer-as-content-marker collision*: if a marker like `"Edit this page"` appears in `_CONTENT_MARKERS` and also at the **end** of the page (as a footer link), `rfind` lands you past all the content. Fix: `crawl.py` now tries CSS selectors (`article`, `[role=main]`, `main`, etc.) first — when a selector succeeds, it skips content-start stripping and only applies footer trimming. Verify the CSS selector is firing by printing `css_result` length.
-  - *`"networkidle"` timeout on SPA doc sites*: Next.js/React docs (e.g. docs.getdbt.com) have perpetual background fetches that prevent `networkidle` from ever firing, causing `Page.goto` to time out. `crawl.py` now uses `wait_until="load"` throughout. If you still get timeouts, increase `--timeout` to 60+.
-- **Content too thin per page (site-specific markers)**: If neither CSS selector nor marker approach works, check `web_profile.json` warnings and adjust `_CONTENT_MARKERS` / `_FOOTER_MARKERS` in `crawl.py` for the specific site.
+- **All pages auth-gated**: entire section is behind login. Fall back to single-page `fetch.py` on a public overview page, or use a PDF/whitepaper.
+- **Nav links not discovered**: site uses non-standard nav structure. Try a sub-page as seed — some sites only expand the full nav tree when on a child page.
+- **Too many pages**: tighten `--path-prefix` or use `--max-pages`.
+- **Page timeouts on SPA sites**: Next.js/React docs (e.g. docs.getdbt.com) can be slow. Use `--timeout 60`. Nav discovery uses `wait_until="load"` + 2 s wait to avoid networkidle hangs.
 
 ## Output structure (both modes)
 
 ```
 <out_dir>/
   content.md          markdown; YAML frontmatter + body. Multi-page: one ## section per page.
-  figures/            (single-page only) downloaded raster figures + inline SVGs
+  figures/            downloaded raster figures + inline SVGs (both modes)
   metadata.json       {url, final_url, title, author, published, site_name, fetched_at, [pages_crawled]}
   web_profile.json    {fetcher, extractor, math, images, warnings, [pages_crawled: [{title, url}]]}
+  .pages/<slug>/      (multi-page only) per-page fetch.py output kept for debugging
 ```
 
 - `fetcher` is `"httpx"` / `"playwright"` (single-page) or `"playwright-multi"` (crawl).

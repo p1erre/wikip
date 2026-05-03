@@ -5,6 +5,10 @@ Crawl a documentation site section and stitch pages into a single content bundle
 Designed for JS-rendered doc sites (Next.js, Docusaurus, MkDocs, GitBook, etc.)
 where the navigation is not in static HTML and page content is split across many URLs.
 
+Architecture: crawl.py handles only URL discovery and stitching.
+Per-page extraction (images, math, SVGs) is fully delegated to fetch.py —
+the same battle-tested pipeline used for single-page fetches.
+
 Usage:
   crawl.py <seed-url> --out-dir <dir>
            [--path-prefix <prefix>]   only follow links whose path starts with <prefix>
@@ -12,105 +16,134 @@ Usage:
            [--max-pages <N>]          safety cap, default 40
            [--delay <seconds>]        polite inter-page delay, default 0.5
            [--user-agent <ua>]        override default UA
-           [--timeout <seconds>]      per-page timeout, default 30
+           [--timeout <seconds>]      per-page timeout passed to fetch.py, default 30
 
-Output (same shape as fetch.py so wikip/wikip-like consumers work unchanged):
-  <out-dir>/content.md          combined markdown, one ## section per page
-  <out-dir>/metadata.json       {url, title, author, site_name, pages_crawled}
-  <out-dir>/web_profile.json    {fetcher:"playwright-multi", pages_crawled:[...], warnings:[...]}
+Output (same shape as fetch.py so wikip consumes it unchanged):
+  <out-dir>/content.md          combined markdown; image refs point to <out-dir>/figures/
+  <out-dir>/figures/            all images from all pages, merged (sha names = no collisions)
+  <out-dir>/metadata.json
+  <out-dir>/web_profile.json    fetcher:"playwright-multi", aggregated image/math stats
+  <out-dir>/.pages/<slug>/      per-page fetch.py output, kept for inspection/debugging
 
-Idempotent: skips if content.md + metadata.json both exist.
-
-Requires playwright:
-  uv pip install -e '.[playwright]' && uv run playwright install chromium
+Idempotency:
+  Top-level: skips entirely if content.md + metadata.json both exist.
+  Per-page:  fetch.py is itself idempotent — interrupted crawls resume automatically.
 """
 
 import argparse
 import json
 import re
+import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
+
+FETCH_SCRIPT = Path(__file__).parent / "fetch.py"
 
 DEFAULT_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
     "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 )
 
-# ─── nav-link discovery ──────────────────────────────────────────────────────
 
-def discover_nav_links(page, seed_url: str, path_prefix: str) -> list[str]:
-    """Return unique URLs found in the rendered page that match path_prefix."""
-    links = page.evaluate(
-        """(prefix) => {
-            return Array.from(document.querySelectorAll('a[href]'))
-                .map(a => a.href)
-                .filter(h => h && !h.includes('#') && h.includes(prefix));
-        }""",
-        path_prefix,
-    )
-    seen, ordered = set(), []
+# ─── URL discovery ────────────────────────────────────────────────────────────
+
+def discover_nav_links(
+    seed_url: str,
+    path_prefix: str,
+    timeout_ms: int,
+    user_agent: str,
+) -> tuple[list[str], str, str]:
+    """
+    Render the seed URL with Playwright and return (links, site_title, site_name).
+    Uses wait_until="load" + 2 s extra — avoids networkidle hangs on SPA sites.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise RuntimeError(
+            "Playwright not installed. Run: uv pip install -e '.[playwright]' && "
+            "uv run playwright install chromium"
+        )
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(user_agent=user_agent)
+        page.goto(seed_url, wait_until="load", timeout=timeout_ms)
+        page.wait_for_timeout(2000)
+
+        site_title = page.title().split("|")[0].strip()
+        site_name = page.title().split("|")[-1].strip() if "|" in page.title() else ""
+
+        links: list[str] = page.evaluate(
+            """(prefix) => {
+                return Array.from(document.querySelectorAll('a[href]'))
+                    .map(a => a.href)
+                    .filter(h => h && !h.includes('#') && h.includes(prefix));
+            }""",
+            path_prefix,
+        )
+        browser.close()
+
+    seen: set[str] = set()
+    ordered: list[str] = []
     for link in links:
         clean = link.split("?")[0].rstrip("/")
         if clean and clean not in seen:
             seen.add(clean)
             ordered.append(clean)
-    return ordered
+
+    return ordered, site_title, site_name
 
 
-# ─── per-page content extraction ─────────────────────────────────────────────
+# ─── helpers ──────────────────────────────────────────────────────────────────
 
-# These phrases reliably appear as the last nav item before article content
-# on most doc sites. We truncate everything before the first match.
-_CONTENT_MARKERS = [
-    "Print page\n",
-    "Edit this page\n",
-    "On this page\n",          # some sites put TOC before content
-]
-
-# Footer phrases — strip everything from these onwards
-_FOOTER_MARKERS = [
-    "\nWas this helpful?",
-    "\nEdit this page",
-    "\nPrevious\n",
-    "\nNext\n",
-    "\nContribute",
-    "\nCopyright",
-]
+def url_to_slug(url: str) -> str:
+    """
+    Full-path slug — collision-free across all pages in the same crawl.
+    e.g. https://docs.example.com/docs/build/semantic-models
+         → docs-build-semantic-models
+    """
+    path = urlparse(url).path.strip("/")
+    return re.sub(r"[^a-zA-Z0-9]+", "-", path).strip("-") or "index"
 
 
-def extract_article_body(raw: str) -> str:
-    """Strip nav/header/footer from innerText, keeping only the article body."""
-    body = raw
+def strip_frontmatter(text: str) -> str:
+    """Remove the leading --- ... --- YAML block from a content.md."""
+    lines = text.split("\n")
+    if lines and lines[0].strip() == "---":
+        try:
+            end = lines.index("---", 1)
+            return "\n".join(lines[end + 1:]).lstrip()
+        except ValueError:
+            pass
+    return text
 
-    # Find content start: look for the last "Print page" or equivalent marker
-    start_idx = -1
-    for marker in _CONTENT_MARKERS:
-        idx = body.rfind(marker)   # rfind: last occurrence (past all nav items)
-        if idx >= 0 and idx > start_idx:
-            start_idx = idx + len(marker)
 
-    if start_idx > 0:
-        body = body[start_idx:]
-        # The first non-blank line is often the article title repeated — skip it
-        lines = body.split("\n")
-        for i, line in enumerate(lines):
-            if line.strip():
-                # skip this line (repeated title) and start from next non-blank
-                body = "\n".join(lines[i + 1:])
-                break
+# ─── per-page fetch ───────────────────────────────────────────────────────────
 
-    # Trim footer
-    for marker in _FOOTER_MARKERS:
-        idx = body.find(marker)
-        if idx > 100:          # don't trim if it's at the very start
-            body = body[:idx]
-
-    # Collapse 3+ consecutive blank lines into 2
-    body = re.sub(r"\n{3,}", "\n\n", body)
-
-    return body.strip()
+def fetch_page(url: str, page_dir: Path, timeout: int, user_agent: str) -> bool:
+    """
+    Call fetch.py for one URL. Returns True on success.
+    fetch.py is idempotent: skips silently if page_dir/content.md already exists.
+    """
+    result = subprocess.run(
+        [
+            sys.executable, str(FETCH_SCRIPT),
+            url,
+            "--out-dir", str(page_dir),
+            "--playwright",
+            "--timeout", str(timeout),
+            "--user-agent", user_agent,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.stderr.strip():
+        print(result.stderr.rstrip(), file=sys.stderr)
+    return result.returncode == 0
 
 
 # ─── main crawl ──────────────────────────────────────────────────────────────
@@ -122,145 +155,121 @@ def crawl(
     max_pages: int,
     delay: float,
     user_agent: str,
-    timeout_ms: int,
+    timeout: int,
 ) -> int:
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        print(
-            "Playwright not installed. Run: uv pip install -e '.[playwright]' && "
-            "uv run playwright install chromium",
-            file=sys.stderr,
-        )
-        return 1
-
     out_dir.mkdir(parents=True, exist_ok=True)
+    pages_dir = out_dir / ".pages"
+    pages_dir.mkdir(exist_ok=True)
 
-    sections: list[dict] = []    # {title, url, body}
     warnings: list[str] = []
     fetched_at = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        ctx = browser.new_context(user_agent=user_agent)
-        nav_page = ctx.new_page()
+    # ── 1. discover nav links ─────────────────────────────────────────────────
+    print(f"[web-crawl] seed: {seed_url}", file=sys.stderr)
+    try:
+        all_links, site_title, site_name = discover_nav_links(
+            seed_url, path_prefix, timeout * 1000, user_agent
+        )
+    except RuntimeError as exc:
+        print(f"[web-crawl] nav discovery failed: {exc}", file=sys.stderr)
+        return 1
 
-        # ── step 1: load seed, discover nav links ──
-        # Use "load" (not "networkidle") — some SPA doc sites (e.g. Next.js) have
-        # perpetual background fetches that prevent "networkidle" from firing.
-        print(f"[web-crawl] seed: {seed_url}", file=sys.stderr)
-        nav_page.goto(seed_url, wait_until="load", timeout=timeout_ms)
-        nav_page.wait_for_timeout(2000)
+    seed_clean = seed_url.split("?")[0].rstrip("/")
+    if seed_clean not in all_links:
+        all_links = [seed_clean] + all_links
 
-        site_title = nav_page.title().split("|")[0].strip()
-        site_name = nav_page.title().split("|")[-1].strip() if "|" in nav_page.title() else ""
+    print(
+        f"[web-crawl] discovered {len(all_links)} candidate links under {path_prefix}",
+        file=sys.stderr,
+    )
+    if len(all_links) > max_pages:
+        warnings.append(f"Capped at {max_pages} pages (discovered {len(all_links)})")
+        all_links = all_links[:max_pages]
 
-        all_links = discover_nav_links(nav_page, seed_url, path_prefix)
-        # Ensure seed is first if not already in list
-        seed_clean = seed_url.split("?")[0].rstrip("/")
-        if seed_clean not in all_links:
-            all_links = [seed_clean] + all_links
+    # ── 2. fetch each page via fetch.py ───────────────────────────────────────
+    sections: list[dict] = []
 
-        print(f"[web-crawl] discovered {len(all_links)} candidate links under {path_prefix}", file=sys.stderr)
-        if len(all_links) > max_pages:
-            warnings.append(f"Capped at {max_pages} pages (discovered {len(all_links)})")
-            all_links = all_links[:max_pages]
+    for i, url in enumerate(all_links):
+        slug = url_to_slug(url)
+        page_dir = pages_dir / slug
 
-        # ── step 2: fetch + extract each page ──
-        fetch_page = ctx.new_page()
-        for i, url in enumerate(all_links):
+        print(f"[web-crawl]   [{i + 1}/{len(all_links)}] {slug}", file=sys.stderr)
+
+        if not fetch_page(url, page_dir, timeout, user_agent):
+            warnings.append(f"fetch.py failed: {url}")
+            continue
+
+        content_md = page_dir / "content.md"
+        if not content_md.exists():
+            warnings.append(f"No content.md: {url}")
+            continue
+
+        # Title from fetch.py's metadata.json
+        title = slug.replace("-", " ").title()
+        meta_path = page_dir / "metadata.json"
+        if meta_path.exists():
             try:
-                fetch_page.goto(url, wait_until="load", timeout=timeout_ms)
-                fetch_page.wait_for_timeout(1000)
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                if meta.get("title"):
+                    title = meta["title"]
+            except Exception:
+                pass
 
-                # Try CSS selectors first — if we get a clean article element,
-                # skip content-start stripping (the selector already isolates the article)
-                # and only apply footer trimming.
-                css_result = fetch_page.evaluate("""() => {
-                    const selectors = [
-                        'article',
-                        '[role="main"]',
-                        'main article',
-                        '.docItemContainer',
-                        '.markdown',
-                        '.content',
-                        '[class*="docContent"]',
-                        '[class*="article"]',
-                        'main',
-                    ];
-                    for (const sel of selectors) {
-                        const el = document.querySelector(sel);
-                        if (el && el.innerText.trim().length > 300) return el.innerText;
-                    }
-                    return null;
-                }""")
+        body = strip_frontmatter(content_md.read_text(encoding="utf-8"))
+        word_count = len(body.split())
 
-                if css_result and len(css_result.strip()) > 300:
-                    # CSS selector succeeded — only apply footer trimming, not start stripping
-                    raw = css_result
-                    body = raw
-                    for marker in _FOOTER_MARKERS:
-                        idx = body.find(marker)
-                        if idx > 200:
-                            body = body[:idx]
-                    body = re.sub(r"\n{3,}", "\n\n", body).strip()
-                else:
-                    # Fallback: full body.innerText + marker-based extraction
-                    raw = fetch_page.evaluate("document.body.innerText")
-                    body = extract_article_body(raw)
+        if word_count < 30:
+            msg = "auth-gated" if any(
+                kw in body.lower() for kw in ("sign in", "log in", "okta")
+            ) else "too thin"
+            warnings.append(f"Skipped ({msg}): {url}")
+            print(f"[web-crawl]     → skip ({msg})", file=sys.stderr)
+            continue
 
-                # Auth-gated check — small body with "sign in" is a redirect
-                if len(raw.strip()) < 200 and any(
-                    kw in raw.lower() for kw in ("sign in", "log in", "okta", "authenticate")
-                ):
-                    warnings.append(f"Skipped (auth-gated): {url}")
-                    print(f"[web-crawl]   skip (auth): {url}", file=sys.stderr)
-                    continue
-                if len(body.split()) < 30:
-                    warnings.append(f"Skipped (too thin after extraction): {url}")
-                    print(f"[web-crawl]   skip (thin): {url}", file=sys.stderr)
-                    continue
+        n_figs = len(list((page_dir / "figures").iterdir())) if (page_dir / "figures").exists() else 0
+        print(f"[web-crawl]     → {word_count:>5} words, {n_figs} figures", file=sys.stderr)
 
-                # Derive a section title from the URL slug
-                slug = url.rstrip("/").rsplit("/", 1)[-1]
-                title = slug.replace("-", " ").replace("_", " ").title()
+        sections.append({"title": title, "url": url, "body": body, "page_dir": page_dir})
 
-                sections.append({"title": title, "url": url, "body": body})
-                word_count = len(body.split())
-                print(f"[web-crawl]   [{i+1}/{len(all_links)}] {word_count:>5} words  {title}", file=sys.stderr)
-
-                if delay > 0:
-                    fetch_page.wait_for_timeout(int(delay * 1000))
-
-            except Exception as exc:
-                warnings.append(f"Error fetching {url}: {exc}")
-                print(f"[web-crawl]   error: {url}: {exc}", file=sys.stderr)
-
-        browser.close()
+        if delay > 0:
+            time.sleep(delay)
 
     if not sections:
         print("[web-crawl] no content extracted — check path-prefix and auth", file=sys.stderr)
         return 1
 
-    # ── step 3: stitch into content.md ──
+    # ── 3. merge figures/ from all pages into one shared figures/ ─────────────
+    figures_dir = out_dir / "figures"
+    figures_dir.mkdir(exist_ok=True)
+
+    for sec in sections:
+        page_figures = sec["page_dir"] / "figures"
+        if page_figures.exists():
+            for fig in page_figures.iterdir():
+                if fig.is_file():
+                    dest = figures_dir / fig.name
+                    if not dest.exists():
+                        shutil.copy2(fig, dest)
+
+    # ── 4. stitch content.md ──────────────────────────────────────────────────
     combined_title = site_title or f"Documentation crawl of {urlparse(seed_url).netloc}"
 
     front = (
         f"---\n"
         f"url: {seed_url}\n"
-        f'title: {json.dumps(combined_title)}\n'
-        f'author: {json.dumps(site_name or "")}\n'
-        f'site_name: {json.dumps(site_name or "")}\n'
+        f"title: {json.dumps(combined_title)}\n"
+        f"author: {json.dumps(site_name or '')}\n"
+        f"site_name: {json.dumps(site_name or '')}\n"
         f"fetched_at: {fetched_at}\n"
         f"---\n\n"
     )
 
-    body_parts = [f"# {combined_title}\n"]
-    body_parts.append(
-        f"*Assembled from {len(sections)} pages crawled under `{path_prefix}`.*\n"
-    )
+    body_parts = [
+        f"# {combined_title}\n",
+        f"*Assembled from {len(sections)} pages crawled under `{path_prefix}`.*\n",
+    ]
     if warnings:
-        body_parts.append(f"*Warnings: {len(warnings)} (see web_profile.json for details).*\n")
+        body_parts.append(f"*Warnings: {len(warnings)} — see web_profile.json.*\n")
     body_parts.append("")
 
     for sec in sections:
@@ -271,40 +280,61 @@ def crawl(
     content = front + "\n".join(body_parts)
     (out_dir / "content.md").write_text(content, encoding="utf-8")
 
-    metadata = {
-        "url": seed_url,
-        "final_url": seed_url,
-        "title": combined_title,
-        "author": site_name or None,
-        "published": None,
-        "modified": None,
-        "site_name": site_name or None,
-        "description": f"Multi-page crawl: {len(sections)} pages from {path_prefix}",
-        "language": None,
-        "fetched_at": fetched_at,
-        "pages_crawled": len(sections),
-        "page_urls": [s["url"] for s in sections],
-    }
-    (out_dir / "metadata.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+    # ── 5. write metadata.json + web_profile.json ─────────────────────────────
+    agg_images = {"found": 0, "downloaded": 0, "skipped": 0, "failed": 0}
+    agg_math = {"katex": 0, "mathjax_script": 0, "mathml": 0, "raw_delim": 0}
+    all_warnings: list[str] = list(warnings)
 
-    profile = {
-        "url": seed_url,
-        "final_url": seed_url,
-        "fetcher": "playwright-multi",
-        "extractor": "multi-page-nav-crawl",
-        "math": {"katex": 0, "mathjax_script": 0, "mathml": 0, "raw_delim": 0},
-        "images": {"found": 0, "downloaded": 0, "skipped": 0, "failed": 0},
-        "inline_svgs": 0,
-        "warnings": warnings,
-        "pages_crawled": [{"title": s["title"], "url": s["url"]} for s in sections],
-    }
-    (out_dir / "web_profile.json").write_text(json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8")
+    for sec in sections:
+        profile_path = sec["page_dir"] / "web_profile.json"
+        if profile_path.exists():
+            try:
+                pg = json.loads(profile_path.read_text(encoding="utf-8"))
+                for k in agg_images:
+                    agg_images[k] += pg.get("images", {}).get(k, 0)
+                for k in agg_math:
+                    agg_math[k] += pg.get("math", {}).get(k, 0)
+                all_warnings.extend(pg.get("warnings", []))
+            except Exception:
+                pass
 
-    char_count = len(content)
-    line_count = content.count("\n")
+    (out_dir / "metadata.json").write_text(
+        json.dumps({
+            "url": seed_url,
+            "final_url": seed_url,
+            "title": combined_title,
+            "author": site_name or None,
+            "published": None,
+            "modified": None,
+            "site_name": site_name or None,
+            "description": f"Multi-page crawl: {len(sections)} pages from {path_prefix}",
+            "language": None,
+            "fetched_at": fetched_at,
+            "pages_crawled": len(sections),
+            "page_urls": [s["url"] for s in sections],
+        }, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    (out_dir / "web_profile.json").write_text(
+        json.dumps({
+            "url": seed_url,
+            "final_url": seed_url,
+            "fetcher": "playwright-multi",
+            "extractor": "fetch.py-per-page",
+            "math": agg_math,
+            "images": agg_images,
+            "inline_svgs": 0,
+            "warnings": all_warnings,
+            "pages_crawled": [{"title": s["title"], "url": s["url"]} for s in sections],
+        }, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
     print(
         f"[web-crawl] done: {out_dir}/content.md "
-        f"({len(sections)} pages, {line_count} lines, {char_count:,} chars)",
+        f"({len(sections)} pages, {content.count(chr(10))} lines, {len(content):,} chars, "
+        f"images: {agg_images['downloaded']} downloaded)",
         file=sys.stderr,
     )
     return 0
@@ -313,7 +343,6 @@ def crawl(
 # ─── CLI ─────────────────────────────────────────────────────────────────────
 
 def _default_prefix(url: str) -> str:
-    """Same directory as the seed URL (up to the last path segment)."""
     parsed = urlparse(url)
     path = parsed.path.rstrip("/")
     parent = path.rsplit("/", 1)[0] if "/" in path else path
@@ -321,37 +350,31 @@ def _default_prefix(url: str) -> str:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("url", help="Seed URL — nav links will be discovered from this page")
-    p.add_argument("--out-dir", required=True, help="Directory to write the bundle into")
-    p.add_argument(
-        "--path-prefix",
-        default=None,
-        help="Only follow links whose URL starts with this prefix. "
-             "Default: same directory as seed URL.",
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("--max-pages", type=int, default=40, help="Safety cap on pages fetched (default 40)")
-    p.add_argument("--delay", type=float, default=0.5, help="Polite delay between fetches in seconds (default 0.5)")
+    p.add_argument("url", help="Seed URL — nav links are discovered from this page")
+    p.add_argument("--out-dir", required=True)
+    p.add_argument("--path-prefix", default=None)
+    p.add_argument("--max-pages", type=int, default=40)
+    p.add_argument("--delay", type=float, default=0.5)
     p.add_argument("--user-agent", default=DEFAULT_UA)
-    p.add_argument("--timeout", type=int, default=30, help="Per-page timeout in seconds (default 30)")
+    p.add_argument("--timeout", type=int, default=30)
     args = p.parse_args()
 
     out_dir = Path(args.out_dir)
-
-    # Idempotency check
     if (out_dir / "content.md").exists() and (out_dir / "metadata.json").exists():
         print(f"[web-crawl] already done: {out_dir} — delete it to re-crawl", file=sys.stderr)
         return 0
 
-    path_prefix = args.path_prefix or _default_prefix(args.url)
     return crawl(
         seed_url=args.url,
         out_dir=out_dir,
-        path_prefix=path_prefix,
+        path_prefix=args.path_prefix or _default_prefix(args.url),
         max_pages=args.max_pages,
         delay=args.delay,
         user_agent=args.user_agent,
-        timeout_ms=args.timeout * 1000,
+        timeout=args.timeout,
     )
 
 
