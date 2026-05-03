@@ -83,7 +83,10 @@ Use when the source is a **documentation site** where a section spans multiple J
 - **All pages 0 words / auth-gated**: the entire section is behind login. Fall back to the single-page `fetch.py` on a publicly available overview page, or use a different source (vendor whitepaper, API reference PDF, etc.).
 - **Nav links not discovered**: the site uses a non-standard nav structure. Try navigating to a sub-page (e.g., `typesys-overview`) rather than the top-level overview — some sites only expand the nav tree when you're on a child page.
 - **Too many pages**: tighten `--path-prefix` to a deeper path, or use `--max-pages`.
-- **Content too thin per page**: `extract_article_body` relies on "Print page" and similar footer markers as content-start signals. If the site uses different patterns, check `web_profile.json` warnings and adjust `_CONTENT_MARKERS` / `_FOOTER_MARKERS` in `crawl.py`.
+- **Content too thin per page (all pages ~80 words)**: Two known causes:
+  - *CSS selector path + footer-as-content-marker collision*: if a marker like `"Edit this page"` appears in `_CONTENT_MARKERS` and also at the **end** of the page (as a footer link), `rfind` lands you past all the content. Fix: `crawl.py` now tries CSS selectors (`article`, `[role=main]`, `main`, etc.) first — when a selector succeeds, it skips content-start stripping and only applies footer trimming. Verify the CSS selector is firing by printing `css_result` length.
+  - *`"networkidle"` timeout on SPA doc sites*: Next.js/React docs (e.g. docs.getdbt.com) have perpetual background fetches that prevent `networkidle` from ever firing, causing `Page.goto` to time out. `crawl.py` now uses `wait_until="load"` throughout. If you still get timeouts, increase `--timeout` to 60+.
+- **Content too thin per page (site-specific markers)**: If neither CSS selector nor marker approach works, check `web_profile.json` warnings and adjust `_CONTENT_MARKERS` / `_FOOTER_MARKERS` in `crawl.py` for the specific site.
 
 ## Output structure (both modes)
 

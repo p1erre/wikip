@@ -146,9 +146,11 @@ def crawl(
         nav_page = ctx.new_page()
 
         # ── step 1: load seed, discover nav links ──
+        # Use "load" (not "networkidle") — some SPA doc sites (e.g. Next.js) have
+        # perpetual background fetches that prevent "networkidle" from firing.
         print(f"[web-crawl] seed: {seed_url}", file=sys.stderr)
-        nav_page.goto(seed_url, wait_until="networkidle", timeout=timeout_ms)
-        nav_page.wait_for_timeout(1000)
+        nav_page.goto(seed_url, wait_until="load", timeout=timeout_ms)
+        nav_page.wait_for_timeout(2000)
 
         site_title = nav_page.title().split("|")[0].strip()
         site_name = nav_page.title().split("|")[-1].strip() if "|" in nav_page.title() else ""
@@ -168,10 +170,44 @@ def crawl(
         fetch_page = ctx.new_page()
         for i, url in enumerate(all_links):
             try:
-                fetch_page.goto(url, wait_until="networkidle", timeout=timeout_ms)
-                fetch_page.wait_for_timeout(500)
+                fetch_page.goto(url, wait_until="load", timeout=timeout_ms)
+                fetch_page.wait_for_timeout(1000)
 
-                raw = fetch_page.evaluate("document.body.innerText")
+                # Try CSS selectors first — if we get a clean article element,
+                # skip content-start stripping (the selector already isolates the article)
+                # and only apply footer trimming.
+                css_result = fetch_page.evaluate("""() => {
+                    const selectors = [
+                        'article',
+                        '[role="main"]',
+                        'main article',
+                        '.docItemContainer',
+                        '.markdown',
+                        '.content',
+                        '[class*="docContent"]',
+                        '[class*="article"]',
+                        'main',
+                    ];
+                    for (const sel of selectors) {
+                        const el = document.querySelector(sel);
+                        if (el && el.innerText.trim().length > 300) return el.innerText;
+                    }
+                    return null;
+                }""")
+
+                if css_result and len(css_result.strip()) > 300:
+                    # CSS selector succeeded — only apply footer trimming, not start stripping
+                    raw = css_result
+                    body = raw
+                    for marker in _FOOTER_MARKERS:
+                        idx = body.find(marker)
+                        if idx > 200:
+                            body = body[:idx]
+                    body = re.sub(r"\n{3,}", "\n\n", body).strip()
+                else:
+                    # Fallback: full body.innerText + marker-based extraction
+                    raw = fetch_page.evaluate("document.body.innerText")
+                    body = extract_article_body(raw)
 
                 # Auth-gated check — small body with "sign in" is a redirect
                 if len(raw.strip()) < 200 and any(
@@ -180,8 +216,6 @@ def crawl(
                     warnings.append(f"Skipped (auth-gated): {url}")
                     print(f"[web-crawl]   skip (auth): {url}", file=sys.stderr)
                     continue
-
-                body = extract_article_body(raw)
                 if len(body.split()) < 30:
                     warnings.append(f"Skipped (too thin after extraction): {url}")
                     print(f"[web-crawl]   skip (thin): {url}", file=sys.stderr)
