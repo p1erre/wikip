@@ -1,9 +1,9 @@
 ---
-name: video-transcript
+name: video-transcript-fetch
 description: Fetch or generate a transcript for any video URL. Tries captions first (yt-dlp, free and instant); falls back to local faster-whisper transcription when none are available. Works with YouTube, Vimeo, Twitter/X, and 1000+ sites supported by yt-dlp.
 ---
 
-# video-transcript
+# video-transcript-fetch
 
 Fetches the transcript and metadata for any video URL. Uses yt-dlp to get captions when available (free, instant, no model needed); falls back to local faster-whisper transcription when not.
 
@@ -19,7 +19,7 @@ Fetches the transcript and metadata for any video URL. Uses yt-dlp to get captio
 2. Set `OUT=work/<slug>` unless the user specified a different work-dir.
 3. Run:
    ```bash
-   uv run python3 .claude/skills/video-transcript/scripts/fetch.py "<URL>" --out-dir "$OUT" [--lang <lang>]
+   uv run python3 .claude/skills/video-transcript-fetch/scripts/fetch.py "<URL>" --out-dir "$OUT" [--lang <lang>]
    ```
 4. Report what landed:
    - `<OUT>/metadata.json` — title, channel, duration, chapters, `transcript_source`
