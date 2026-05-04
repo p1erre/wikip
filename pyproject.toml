@@ -1,7 +1,7 @@
 [project]
-name = "video-to-booklet"
-version = "0.2.0"
-description = "Claude Code skills that turn YouTube videos into markdown booklets"
+name = "wikip"
+version = "0.3.0"
+description = "Claude Code skills for ingesting papers, web pages, and videos into a corpus wiki"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
@@ -10,12 +10,9 @@ authors = [
 ]
 
 dependencies = [
-    "yt-dlp>=2024.0.0",
-    "youtube-transcript-api>=0.6.0",
-    "opencv-python>=4.8.0",
-    "scikit-image>=0.21.0",
+    "yt-dlp>=2025.4.0",
+    "faster-whisper>=1.0.0",
     "pillow>=10.0.0",
-    "imagehash>=4.3.1",
     "numpy>=1.26.0",
     "pymupdf>=1.24.0",
     "marker-pdf>=0.3.0",
@@ -27,6 +24,7 @@ dependencies = [
     "markdownify>=0.13.1",
     "beautifulsoup4>=4.12.0",
     "lxml>=5.0.0",
+    "youtube-transcript-api>=0.6.0",
 ]
 
 [project.optional-dependencies]
