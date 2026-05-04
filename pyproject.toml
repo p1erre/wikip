@@ -1,7 +1,7 @@
 [project]
 name = "wikip"
 version = "0.3.0"
-description = "Claude Code skills for ingesting papers, web pages, and videos into a corpus wiki"
+description = "Claude Code skills that fetch papers, videos, and web pages and synthesize them into a linked Obsidian knowledge wiki"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}

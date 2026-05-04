@@ -240,7 +240,7 @@ For arxiv-fetch sources, `raw/figures.json` is the manifest of every figure in t
    cp <source-dir>/raw/_tikz/fig-delg.png <wiki-dir>/assets/<paper-slug>/fig-delg.png
    ```
 
-   Bulk-copying the whole `_tikz/` directory is fine — disk cost is small and unembedded figures stay browsable. Don't symlink: Dropbox/iCloud sync handles symlinks unreliably.
+   Bulk-copying the whole `_tikz/` directory is fine — disk cost is small and unembedded figures stay browsable. Don't symlink: cloud sync tools handle symlinks unreliably.
 
 3. **Embed it in the concept page** using GFM image syntax with the caption as alt text and a visible caption underneath. The image path is relative from `pages/concepts/<slug>.md` to `assets/<paper-slug>/<basename>` — i.e. `../../assets/<paper-slug>/<basename>`:
 

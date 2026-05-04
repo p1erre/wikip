@@ -1,87 +1,97 @@
-# video-to-booklet
+# wikip
 
-A bundle of Claude Code skills that turn YouTube videos (lectures, talks, tutorials) into Markdown booklets.
+Claude Code skills that fetch **papers, videos, and web pages** and synthesize them into a linked knowledge wiki — an [Obsidian](https://obsidian.md/) vault where paper pages and concept pages connect through typed edges.
 
-The "intelligence" lives in seven SKILL.md prompts; three small Python scripts handle deterministic glue (yt-dlp, ffmpeg, slide deduplication). All LLM work runs through Claude Code itself — no external provider API keys, no multi-provider abstraction.
+The motivating example: start from an arXiv paper, a conference talk, and a blog post on the same topic — wikip links them into a structured Obsidian vault with paper pages, concept pages, and typed edges between them.
+
+## How it works
+
+Each source has a fetcher skill that downloads it and normalises it into a structured bundle. The `wikip` skill reads any bundle and writes — or updates — paper and concept pages in your corpus wiki.
+
+```
+arxiv-fetch           ─┐
+pdf-extract           ─┤
+web-fetch             ─┼──→ bundle ──→ wikip ──→ Obsidian wiki
+video-transcript-fetch─┘
+```
+
+Fetchers handle the messy parts: LaTeX extraction, TikZ figure rendering, PDF OCR escalation, math recovery from HTML, caption-based transcription. `wikip` is a synthesis skill — it decides what concept pages to create, how to link them, and how to update existing pages when a new source overlaps with what the corpus already knows.
 
 ## Install
 
-Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), and `ffmpeg` on your `PATH`.
+Requires Python 3.11+, [uv](https://docs.astral.sh/uv/). For PDF OCR and TikZ rendering, also `pdflatex` and `pdftoppm` on your `PATH`.
 
 ```bash
-git clone <this repo>
-cd video-to-booklet
+git clone https://github.com/<your-handle>/wikip
+cd wikip
 uv sync
 ```
 
-Optionally make the skills available from any directory:
+Link the skills to your Claude Code install:
 
 ```bash
 ln -s "$(pwd)/.claude/skills"/* ~/.claude/skills/
 ```
 
-## Use
-
-Open Claude Code in this directory, then:
+## Quick start
 
 ```
-/video-to-booklet https://www.youtube.com/watch?v=Hm-ZIiwiN1o
-```
+# Fetch a paper
+/arxiv-fetch 1706.03762
 
-The pipeline downloads the transcript and video in parallel, extracts unique slides, analyzes them with vision, generates a chapter outline, writes the booklet, and copies the result to `output/<video-title>/booklet.md`.
+# Fetch a video
+/video-transcript-fetch https://www.youtube.com/watch?v=<video-id>
 
-Common variants:
+# Synthesize both into a wiki
+/wikip
 
-```
-/video-to-booklet <url> --no-slides             # interview/talking-head; skip slide arm
-/video-to-booklet <url> --force-stage booklet   # regenerate just the prose
-/video-to-booklet <url> --force                 # full clean run
+# Validate and regenerate the index
+python3 .claude/skills/wikip/scripts/validate.py wikis/my-wiki
 ```
 
 ## Skills
 
-Each skill is independently invokable:
+| Skill | Input | What it does |
+|---|---|---|
+| `/arxiv-fetch` | arXiv ID or URL | Downloads LaTeX source, renders TikZ figures, extracts section structure |
+| `/pdf-extract` | PDF path or URL | Extracts text with strategy escalation (pymupdf → marker → nougat / OCR); preserves math |
+| `/web-fetch` | URL | Fetches page with math recovery (KaTeX / MathJax / MathML), downloads figures |
+| `/video-transcript-fetch` | Video URL | Fetches captions or transcribes with Whisper; works with YouTube and 1000+ sites |
+| `/wikip` | Bundle dir | Synthesizes paper and concept pages, updates `graph.json` |
 
-| Skill | What it does |
+## Wiki layout
+
+Each wiki is an Obsidian vault with two kinds of pages:
+
+- **Paper pages** (`pages/papers/<slug>.md`) — literature-review view of one source: TL;DR, key claims, methodology, results, links to concept pages.
+- **Concept pages** (`pages/concepts/<slug>.md`) — synthesized explanation of one idea, drawn from every paper in the corpus that discusses it.
+
+Pages link through **typed predicates** (`defines`, `extends`, `compares-with`, `is-a`, …). `graph.json` is the machine-readable edge list; `validate.py` enforces the schema.
+
+```
+wikis/my-wiki/
+  pages/
+    papers/arxiv-1706.03762.md
+    concepts/attention-mechanism.md
+    concepts/transformer.md
+  assets/
+    arxiv-1706.03762/fig-1.png
+  graph.json
+  _schema.json
+  index.md
+```
+
+`wikis/` is a separate git repo — committed independently from the skills code.
+
+## Utilities
+
+| Script | What it does |
 |---|---|
-| `/yt-fetch-transcript` | Fetch YouTube captions + metadata (title, channel, native chapters). Hard-errors if no captions. |
-| `/yt-fetch-video` | Download the MP4. Idempotent. |
-| `/extract-slides` | Pull unique slides from the video using perceptual hashing + SSIM + build detection. |
-| `/analyze-slides` | Vision pass over slide images. Spawns parallel subagents (~10 slides each). Vision-only — no transcript context. |
-| `/generate-chapters` | Produce a rich chapter outline. Uses native chapters if present; rebalances toward ~2000 words/chapter. |
-| `/generate-booklet` | Planner-then-workers prose generation. One planner pass + N parallel chapter writers. |
-| `/video-to-booklet` | Meta-orchestrator that runs the above. |
-
-## Layout
-
-```
-.claude/skills/<name>/SKILL.md   # the prompt
-.claude/skills/<name>/scripts/   # bundled Python (only for deterministic skills)
-work/<video_id>/                 # build directory, gitignored, resume-able
-  metadata.json
-  transcript.txt
-  video.mp4
-  slides/
-    slide_NNN.jpg
-    metadata.json
-    analysis.md
-  chapters.json
-  plan.json
-  booklet.md
-output/<video-title>/             # user-facing artifact bundle
-  booklet.md
-  slides/
-    slide_NNN.jpg                 # only if slides were extracted
-```
-
-`work/` is the durable build dir — re-running on the same URL skips stages whose output already exists. `output/` holds the final, user-friendly markdown.
-
-## Failure modes
-
-- **No captions on YouTube**: `/yt-fetch-transcript` exits cleanly with a pointer to `/transcribe-audio` (a future Whisper-backed skill, not bundled). The pipeline does not silently fall back to Whisper — that's a different cost class.
-- **Non-presentation video**: pass `--no-slides` to skip the slide arm. The booklet will be transcript-only.
-- **Want to iterate on prose**: `--force-stage booklet` (or `plan`, `chapters`) regenerates downstream stages without re-fetching anything.
+| `wikip/scripts/init.py <wiki>` | Bootstrap a new wiki with standard layout and default predicate schema |
+| `wikip/scripts/validate.py <wiki>` | Check frontmatter, wiki-link resolution, predicate types; regenerate `index.md` |
+| `wikip/scripts/audit.py <wiki>` | Report under-developed concepts: orphans, single-paper concepts, mentioned-but-undefined |
+| `wikip/scripts/merge.py <src> --into <tgt>` | Merge two wikis (pages + graph + schema) with configurable conflict resolution |
 
 ## License
 
-MIT.
+MIT
