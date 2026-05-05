@@ -134,10 +134,17 @@ def extract_pymupdf(pdf_path: Path, out_dir: Path) -> str:
 
 
 def _run(cmd: list[str], desc: str) -> None:
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        tail = (result.stderr or result.stdout or "")[-500:]
-        raise RuntimeError(f"{desc} failed: {tail.strip()}")
+    # Use a temp file for stderr so tqdm/progress output doesn't fill the pipe buffer
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as log:
+        log_path = log.name
+    try:
+        with open(log_path, "w") as log:
+            result = subprocess.run(cmd, stdout=log, stderr=log)
+        if result.returncode != 0:
+            tail = Path(log_path).read_text()[-500:]
+            raise RuntimeError(f"{desc} failed: {tail.strip()}")
+    finally:
+        Path(log_path).unlink(missing_ok=True)
 
 
 def extract_marker(pdf_path: Path, out_dir: Path) -> str:

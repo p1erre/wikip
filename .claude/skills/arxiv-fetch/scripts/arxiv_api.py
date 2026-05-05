@@ -41,6 +41,10 @@ def parse_arxiv_id(raw: str) -> tuple[str, str | None]:
     return m.group("id"), m.group("version")
 
 
+class RateLimitError(RuntimeError):
+    """arXiv returned 429 Too Many Requests. Wait before retrying."""
+
+
 def http_get(url: str, *, accept: str = "*/*", retries: int = 3) -> bytes:
     last_err: Exception | None = None
     for attempt in range(retries):
@@ -51,10 +55,15 @@ def http_get(url: str, *, accept: str = "*/*", retries: int = 3) -> bytes:
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 raise
+            if e.code == 429:
+                raise RateLimitError(
+                    "arXiv rate-limited (429). Wait ~60s before retrying."
+                ) from e
             last_err = e
         except urllib.error.URLError as e:
             last_err = e
-        time.sleep(2 ** attempt)
+        # Exponential backoff: 3s, 6s, 12s — stays within arXiv's ~1 req/3s guideline
+        time.sleep(3 * 2 ** attempt)
     raise RuntimeError(f"GET {url} failed after {retries} attempts: {last_err}")
 
 
