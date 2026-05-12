@@ -276,6 +276,7 @@ For arxiv-fetch sources, `raw/figures.json` is the manifest of every figure in t
 | arxiv-fetch | `raw/structure.json` for section list, then walk `raw/sections/*.tex` in order. Read `raw/preamble.tex` once for macro context. Pull metadata from `raw/arxiv_meta.json`. **Read `raw/figures.json` for the figure manifest** (per-figure caption, label, resolved_paths, has_tikz, tikz_sources). | When `pdflatex` was available at fetch time, TikZ figures are pre-rendered to `raw/_tikz/*.png` and listed in `resolved_paths` — embed them like any raster figure. When rendering failed (or pdflatex was missing), `resolved_paths` is empty and `tikz_sources` holds the LaTeX source. Custom macros from preamble.tex give context but don't need rendering. |
 | video-to-booklet | `booklet.md` is the prose; pull title from the H1 and authors from video metadata if available. | Booklets are already markdown — just synthesise. |
 | pdf-extract | `content.md` for prose, `metadata.json` for header info. If `pdf_profile.json` has `unreliable: true`, flag it in the paper page's "Open questions". | |
+| deep-research | `content.md` for the synthesized research report, `metadata.json` for query/title/date/sources list. Treat as type `paper`. The `deep_research_profile.json` is for provenance only — don't use it for content. | The report is already synthesized across sources; extract concepts from its sections and Key Claims as you would a survey paper. The sources list in metadata.json is for citation provenance, not for re-fetching. |
 
 ## Merging two wikis
 

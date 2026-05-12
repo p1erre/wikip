@@ -14,7 +14,8 @@ Turn one source document into one paper page **plus a set of concept pages** (cr
   - `booklet.md` present → video-to-booklet output (read `booklet.md` plus `chapters.json` if present).
   - `content.md` + `web_profile.json` present → web-fetch output (read `content.md` plus `metadata.json`; URL/site/author live in `metadata.json`).
   - `content.md` + `clip_profile.json` present → clip output (hand-fed text; read `content.md` plus `metadata.json`; platform/original_url in `clip_profile.json`).
-  - `content.md` + `metadata.json` present (no `web_profile.json`, no `clip_profile.json`) → pdf-extract output.
+  - `content.md` + `deep_research_profile.json` present → deep-research output (read `content.md` plus `metadata.json`; query/sources in `metadata.json`; treat as type `paper`).
+  - `content.md` + `metadata.json` present (no `web_profile.json`, no `clip_profile.json`, no `deep_research_profile.json`) → pdf-extract output.
 - **wiki-dir** (required) — corpus wiki directory, e.g. `wiki/`. Initialise first if missing.
 
 ## Workflow
