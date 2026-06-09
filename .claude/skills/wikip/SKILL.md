@@ -24,6 +24,8 @@ Turn one source document into one paper page **plus a set of concept pages** (cr
 2. **Survey the corpus**: list `<wiki-dir>/pages/papers/` and `<wiki-dir>/pages/concepts/`, read `graph.json`, read `_schema.json`. You need this to (a) know which slugs are valid `[[wiki-link]]` targets, (b) which predicates are allowed (and their from_type/to_type), and (c) which concept pages already exist that you should *update* rather than recreate.
 3. **Detect source type and read it**: load the source content per the rules above.
 4. **Plan the paper page** (the literature-review view of *this document*):
+   - **Slug** — derive the page slug from the source's **title**, not the bundle directory name. Kebab-case the title, keep it concise (≤ ~8 words; drop subtitles, parentheticals, and filler words). Check the candidate against the slugs you surveyed in step 2 — **only if it would collide**, disambiguate minimally by appending the first author's surname and/or year for papers (`knowledge-graphs-hogan-2020`), or a short channel/date token for videos. Titles live in metadata for every source type: arxiv → `raw/arxiv_meta.json` `title`; video → `metadata.json` `title`; web/pdf/clip/deep-research → `metadata.json` `title`. This slug is used for the page filename, the `slug:` frontmatter, the `assets/<paper-slug>/` figure folder, and every `[[backlink]]` to this page.
+   - **Provenance** — record the bundle directory basename in the `source:` frontmatter field (this is what you read the bundle from, and what makes re-ingest detectable — see Idempotency) and the original URL in both the `url:` frontmatter field and a visible reference line in the body. URLs live in metadata: arxiv → `arxiv_meta.json` `abs_url`; video → `metadata.json` `url`; web → `metadata.json`; clip → `clip_profile.json` `original_url`; deep-research → `metadata.json` sources. For pdf-extract with no source URL, set `url:` to the local source path or omit it.
    - **TL;DR** — 3–5 sentences.
    - **Why it matters** — one paragraph.
    - **Key claims & contributions** — bulleted, with source-section refs.
@@ -35,8 +37,8 @@ Turn one source document into one paper page **plus a set of concept pages** (cr
 5. **Plan the concept pages**. From the paper, identify the concepts that deserve their own page — typically 5–15 per paper, the central ideas readers would want to look up by name (e.g. "Knowledge Graph", "Property Graph", "Reification"). For each:
    - **If a concept page already exists** in `pages/concepts/<slug>.md`: read it, then *update* (not replace) — add this paper to the page's `papers:` frontmatter, integrate any new insight from this paper into the existing prose, add it as a citation. Don't duplicate; merge thoughtfully.
    - **If it doesn't exist**: create `pages/concepts/<slug>.md`. See [REFERENCE.md](REFERENCE.md) for the concept-page schema.
-6. **Stage figures into the vault**. For arxiv-fetch sources, copy the rendered figures into `<wiki-dir>/assets/<paper-slug>/`. Bulk-copying the whole `_tikz/` and `figures/` folders is fine — **concept pages** embed via `../../assets/<paper-slug>/<file>.png`. Obsidian only renders images that live inside the vault, so this step is required, not optional. (Skip for sources without figures.)
-7. **Write `pages/papers/<paper-slug>.md`** in Obsidian flavour. Slug = source-dir basename. See [REFERENCE.md](REFERENCE.md) for the paper-page schema. **Do not embed figures on the paper page** — figures belong on concept pages, where they teach a concept; the paper page summarises and links out (e.g. *"see [[chain-of-table]] for the comparison figure"*). validate.py errors on image embeds in paper-like pages.
+6. **Stage figures into the vault**. For arxiv-fetch sources, copy the rendered figures from the bundle (`<source-dir>/raw/_tikz/`, `<source-dir>/raw/figures/`) into `<wiki-dir>/assets/<paper-slug>/`, where `<paper-slug>` is the title-based slug from step 4 (the destination folder is named for the page, not the bundle). Bulk-copying the whole `_tikz/` and `figures/` folders is fine — **concept pages** embed via `../../assets/<paper-slug>/<file>.png`. Obsidian only renders images that live inside the vault, so this step is required, not optional. (Skip for sources without figures.)
+7. **Write `pages/papers/<paper-slug>.md`** in Obsidian flavour, using the title-based slug from step 4. Set `slug:` to that slug, `source:` to the bundle directory basename, and `url:` to the original URL; include a visible `**URL:** <url>` line near the top of the body. See [REFERENCE.md](REFERENCE.md) for the paper-page schema. **Do not embed figures on the paper page** — figures belong on concept pages, where they teach a concept; the paper page summarises and links out (e.g. *"see [[chain-of-table]] for the comparison figure"*). validate.py errors on image embeds in paper-like pages.
 8. **Update `graph.json`**:
    - Add a node for the paper page if not already present.
    - Add nodes for any new concept pages.
@@ -46,7 +48,12 @@ Turn one source document into one paper page **plus a set of concept pages** (cr
    - Edges are keyed by `from`. Re-running on the same paper *replaces* its outgoing edges in `graph.json`, so re-ingesting after edits doesn't accumulate duplicates.
 9. **Validate**: `uv run python3 .claude/skills/wikip/scripts/validate.py "<wiki-dir>"`. Reports broken `[[wiki-links]]`, edges referencing missing pages, predicate type-mismatches (e.g. using `cites` between two concepts), and orphan pages. Regenerates `index.md`. Fix all errors before finishing.
 10. **Refresh `README.md` if the corpus's centre of gravity shifted.** `init.py` scaffolds a placeholder `README.md` at the vault root — the curated landing page that frames the corpus thesis, names the anchor concept, and lists reading paths. *Update it only when this ingest meaningfully shifts the corpus's centre of gravity* (a new dominant theme, a new anchor concept, the vault's first paper, a paper the existing thesis can no longer cover). Don't touch it on routine ingests that just deepen an established thread — the README's value is being a stable, hand-curated synthesis, not a per-ingest log. **When the threshold is met, apply the changes directly** — don't ritualise a diff-then-approve dance, git history captures the diff. Summarise what changed in the final report.
-11. **Report** to the user: paper page written, concept pages created vs updated, edges added, any orphans/warnings, and what (if anything) was changed in `README.md`.
+11. **Commit the wiki changes.** The wikis repo is a *separate* git repo nested in the project — never `git add wikis/` from the project root. Run:
+    ```bash
+    uv run python3 .claude/skills/wikip/scripts/wiki-commit.py -m "feat(corpus): ingest <source-title> into <vault>"
+    ```
+    This stages everything in the wikis repo and commits it on `main` — one ingest, one atomic commit (`git log --oneline` reads one line per ingest; `git revert <sha>` undoes a whole ingest). It is scoped to the wikis repo by construction and refuses to touch the project repo. It does **not** push (the user pushes manually). No-op if the working tree is clean. Write a real conventional-commit message describing what was ingested — one ingest, one call. If two ingests are sitting in the working tree at once, scope each to its vault with a trailing pathspec (`… -m "…" -- agentic-ai`) and call it once per ingest so each lands as its own commit.
+12. **Report** to the user: paper page written, concept pages created vs updated, edges added, any orphans/warnings, what (if anything) was changed in `README.md`, and the merge commit it produced.
 
 ## Output structure
 
@@ -54,15 +61,15 @@ Turn one source document into one paper page **plus a set of concept pages** (cr
 <wiki-dir>/
   pages/
     papers/
-      arxiv-2003.02320.md       paper / video / pdf landing page
-      <video-id>.md
+      knowledge-graphs-hogan-2020.md   paper / video / pdf landing page (title-based slug)
+      inside-yc-ai-playbook.md         video landing page (title-based slug)
       ...
     concepts/
       knowledge-graph.md        concept page (synthesises across all papers)
       property-graph.md
       ...
   assets/
-    arxiv-2003.02320/           one folder per source; figures embedded by concept pages live here
+    knowledge-graphs-hogan-2020/   one folder per source, named for the page slug; figures embedded by concept pages live here
       fig-delg.png
       ...
   graph.json                    {nodes: [...], edges: [{from, to, predicate, context}]}
@@ -99,7 +106,7 @@ Prints four buckets: (A) concepts mentioned but never `defines`d — ingest the 
 
 ## Idempotency
 
-- **Page rewriting**: if `pages/papers/<slug>.md` already exists, ask the user before overwriting. Concept pages are *always* updated rather than overwritten — read the existing page, integrate the new paper's contribution, write back.
+- **Page rewriting**: the page slug now derives from the title, not the bundle name, so a re-ingest of the same source won't necessarily map to the same filename. Before writing, detect a prior ingest by scanning `pages/papers/*.md` frontmatter for a `source:` matching this bundle's directory basename (grep the survey from step 2). If a page already records this `source:`, you're re-ingesting — update that existing page in place (keep its slug) rather than creating a second page under a new title-derived name; if the title changed and you do want to rename, delete the old file and rewrite backlinks. If `pages/papers/<slug>.md` already exists for a *different* source, pick a disambiguated slug instead. Ask the user before overwriting an existing page. Concept pages are *always* updated rather than overwritten — read the existing page, integrate the new paper's contribution, write back.
 - **Graph edges**: keyed by `from`. Re-running on the same paper replaces that paper's outgoing edges. Concept↔concept edges added by previous paper ingests are preserved; only the current paper's outgoing edges are touched.
 
 ## Notes

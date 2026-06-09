@@ -4,24 +4,25 @@ Two kinds of pages live in a wikip wiki: **paper pages** (literature-review view
 
 ## Paper-page schema
 
-`pages/papers/<slug>.md` where `<slug>` is the source-dir basename (e.g. `arxiv-2003.02320`).
+`pages/papers/<slug>.md` where `<slug>` is **derived from the source's title** (kebab-case, concise — e.g. `knowledge-graphs-hogan-2020`), *not* the bundle directory name. Disambiguate with an author/year (papers) or channel/date token (videos) only when the bare title slug would collide with an existing page. The bundle directory basename is recorded separately in the `source:` field for provenance and re-ingest detection.
 
 ### Frontmatter
 
 ```yaml
 ---
-slug: arxiv-2003.02320           # filename stem; must match the file
+slug: knowledge-graphs-hogan-2020   # filename stem; must match the file. Title-derived, kebab-case
 title: "Knowledge Graphs (Hogan et al., 2020)"
-source: arxiv-2003.02320         # source-dir basename
-type: paper                      # paper | video | pdf
-date: 2020-03                    # YYYY or YYYY-MM (best estimate)
-authors: [Hogan, Blomqvist, ...] # for papers/videos with named authors
-tags: [survey, tutorial]         # free-text tags
-ingested: 2026-05-01             # date this page was written
+source: arxiv-2003.02320            # bundle directory basename (provenance; how the source was fetched)
+url: https://arxiv.org/abs/2003.02320  # original URL of the source
+type: paper                         # paper | video | pdf
+date: 2020-03                       # YYYY or YYYY-MM (best estimate)
+authors: [Hogan, Blomqvist, ...]    # for papers/videos with named authors
+tags: [survey, tutorial]            # free-text tags
+ingested: 2026-05-01                # date this page was written
 ---
 ```
 
-`slug`, `title`, `source`, `type`, `ingested` are required.
+`slug`, `title`, `source`, `type`, `ingested` are required. `url` is required whenever the source has one (everything except a local-only PDF); set it to the canonical link (arxiv `abs_url`, the video `url`, the web/clip `original_url`, etc.). Echo it as a visible `**URL:** …` line near the top of the body so it's readable in any renderer, not just in frontmatter.
 
 ### Body
 
