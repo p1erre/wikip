@@ -48,7 +48,12 @@ Turn one source document into one paper page **plus a set of concept pages** (cr
    - Edges are keyed by `from`. Re-running on the same paper *replaces* its outgoing edges in `graph.json`, so re-ingesting after edits doesn't accumulate duplicates.
 9. **Validate**: `uv run python3 .claude/skills/wikip/scripts/validate.py "<wiki-dir>"`. Reports broken `[[wiki-links]]`, edges referencing missing pages, predicate type-mismatches (e.g. using `cites` between two concepts), and orphan pages. Regenerates `index.md`. Fix all errors before finishing.
 10. **Refresh `README.md` if the corpus's centre of gravity shifted.** `init.py` scaffolds a placeholder `README.md` at the vault root — the curated landing page that frames the corpus thesis, names the anchor concept, and lists reading paths. *Update it only when this ingest meaningfully shifts the corpus's centre of gravity* (a new dominant theme, a new anchor concept, the vault's first paper, a paper the existing thesis can no longer cover). Don't touch it on routine ingests that just deepen an established thread — the README's value is being a stable, hand-curated synthesis, not a per-ingest log. **When the threshold is met, apply the changes directly** — don't ritualise a diff-then-approve dance, git history captures the diff. Summarise what changed in the final report.
-11. **Report** to the user: paper page written, concept pages created vs updated, edges added, any orphans/warnings, and what (if anything) was changed in `README.md`.
+11. **Commit the wiki changes.** The wikis repo is a *separate* git repo nested in the project — never `git add wikis/` from the project root. Run:
+    ```bash
+    uv run python3 .claude/skills/wikip/scripts/wiki-commit.py -m "feat(corpus): ingest <source-title> into <vault>"
+    ```
+    This stages everything in the wikis repo and commits it on `main` — one ingest, one atomic commit (`git log --oneline` reads one line per ingest; `git revert <sha>` undoes a whole ingest). It is scoped to the wikis repo by construction and refuses to touch the project repo. It does **not** push (the user pushes manually). No-op if the working tree is clean. Write a real conventional-commit message describing what was ingested — one ingest, one call. If two ingests are sitting in the working tree at once, scope each to its vault with a trailing pathspec (`… -m "…" -- agentic-ai`) and call it once per ingest so each lands as its own commit.
+12. **Report** to the user: paper page written, concept pages created vs updated, edges added, any orphans/warnings, what (if anything) was changed in `README.md`, and the merge commit it produced.
 
 ## Output structure
 
