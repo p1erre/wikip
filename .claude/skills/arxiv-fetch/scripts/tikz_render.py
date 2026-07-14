@@ -209,6 +209,23 @@ def build_standalone(tikz_source: str, sanitized_preamble: str) -> str:
     """
     stub = (
         "\\makeatletter\n"
+        # Journal styles (e.g. neurips_2024.sty) load geometry behind our
+        # back — via \RequirePackage or \usepackage — overriding standalone's
+        # tight page geometry: letter-size pages that clip wide figures and
+        # push content past a blank first page. Intercept both loaders and
+        # skip geometry; \geometry{...} setup calls become no-ops. (Faking
+        # ver@geometry.sty instead trips LaTeX's option-clash check.)
+        "\\let\\sa@orig@RequirePackage\\RequirePackage\n"
+        "\\renewcommand{\\RequirePackage}[2][]{%\n"
+        "  \\def\\sa@rp@tmp{#2}\\def\\sa@rp@geo{geometry}%\n"
+        "  \\ifx\\sa@rp@tmp\\sa@rp@geo\\else\\sa@orig@RequirePackage[#1]{#2}\\fi}\n"
+        "\\let\\sa@orig@usepackage\\usepackage\n"
+        "\\renewcommand{\\usepackage}[2][]{%\n"
+        "  \\def\\sa@up@tmp{#2}\\def\\sa@up@geo{geometry}%\n"
+        "  \\ifx\\sa@up@tmp\\sa@up@geo\\else\\sa@orig@usepackage[#1]{#2}\\fi}\n"
+        "\\providecommand{\\geometry}[1]{}\n"
+        "\\providecommand{\\newgeometry}[1]{}\n"
+        "\\providecommand{\\restoregeometry}{}\n"
         "\\providecommand{\\footnotetextcopyrightpermission}[1]{}\n"
         "\\providecommand{\\ACM@NRadjust}[1]{#1}\n"
         "\\providecommand{\\@subsubsecfont}{\\bfseries}\n"
@@ -268,15 +285,45 @@ def compile_to_pdf(tex_path: Path, source_root: Path, timeout: int = 60) -> tupl
     return tex_abs.with_suffix(".pdf").exists(), ""
 
 
-def pdf_to_png(pdf: Path, dest: Path, dpi: int = 200) -> tuple[bool, str]:
-    pdf_abs = pdf.resolve()
-    dest_abs = dest.resolve()
+def crop_pdf(pdf: Path, timeout: int = 60) -> Path:
+    """pdfcrop to a sibling file; return the cropped path, or the original on failure.
+
+    Needed because paper .sty files reachable via TEXINPUTS can override the
+    standalone class's tight page geometry (full letter pages, content pushed
+    to a later page). pdfcrop restores a content-tight bounding box per page.
+    """
+    if shutil.which("pdfcrop") is None:
+        return pdf
+    cropped = pdf.with_name(pdf.stem + "_crop.pdf")
     try:
         proc = subprocess.run(
-            ["pdftoppm", "-png", "-r", str(dpi), "-singlefile", str(pdf_abs), str(dest_abs.with_suffix(""))],
-            capture_output=True,
-            timeout=60,
+            ["pdfcrop", str(pdf), str(cropped)], capture_output=True, timeout=timeout
         )
+    except subprocess.TimeoutExpired:
+        return pdf
+    return cropped if proc.returncode == 0 and cropped.exists() else pdf
+
+
+def pdf_pages(pdf: Path) -> int:
+    if shutil.which("pdfinfo") is None:
+        return 1
+    try:
+        proc = subprocess.run(["pdfinfo", str(pdf)], capture_output=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        return 1
+    m = re.search(r"^Pages:\s+(\d+)", proc.stdout.decode(errors="replace"), re.MULTILINE)
+    return int(m.group(1)) if m else 1
+
+
+def pdf_to_png(pdf: Path, dest: Path, dpi: int = 200, page: int | None = None) -> tuple[bool, str]:
+    pdf_abs = pdf.resolve()
+    dest_abs = dest.resolve()
+    cmd = ["pdftoppm", "-png", "-r", str(dpi), "-singlefile"]
+    if page is not None:
+        cmd += ["-f", str(page), "-l", str(page)]
+    cmd += [str(pdf_abs), str(dest_abs.with_suffix(""))]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=60)
     except subprocess.TimeoutExpired:
         return False, "pdftoppm timed out"
     if proc.returncode != 0:
@@ -326,12 +373,18 @@ def render_tikz_figures(
         sources: list[str] = scope.get("tikz_sources", []) or []
         if not sources:
             return
-        for src in sources:
+        for k, src in enumerate(sources, start=1):
             counter += 1
-            slug = _slug_for(scope_label, counter)
+            base = _slug_for(scope_label, counter)
+            # A figure can hold several tikzpictures (subplots); each needs its
+            # own file or later blocks silently overwrite / skip via the cache.
+            slug = base if k == 1 else f"{base}-{k}"
             png_dest = out_dir / f"{slug}.png"
+            rel = f"_tikz/{png_dest.name}"
+            paths = scope.setdefault("resolved_paths", [])
             if png_dest.exists():
-                scope.setdefault("resolved_paths", []).append(f"_tikz/{png_dest.name}")
+                if rel not in paths:
+                    paths.append(rel)
                 rendered += 1
                 continue
             tex_path = work_dir / f"{slug}.tex"
@@ -340,11 +393,21 @@ def render_tikz_figures(
             if not ok:
                 warnings.append(f"tikz compile failed for {slug}: {err.splitlines()[0] if err else 'no log'}")
                 continue
-            ok, err = pdf_to_png(tex_path.with_suffix(".pdf"), png_dest)
+            # Paper .sty files can defeat standalone's tight geometry: full
+            # letter pages, figure pushed past a blank first page. Crop back
+            # to content and rasterise the last page, where the picture lands.
+            pdf = crop_pdf(tex_path.with_suffix(".pdf"))
+            pages = pdf_pages(pdf)
+            if pages > 1:
+                warnings.append(
+                    f"tikz {slug}: {pages}-page pdf (page-geometry override); using last page"
+                )
+            ok, err = pdf_to_png(pdf, png_dest, page=pages if pages > 1 else None)
             if not ok:
                 warnings.append(f"tikz rasterise failed for {slug}: {err}")
                 continue
-            scope.setdefault("resolved_paths", []).append(f"_tikz/{png_dest.name}")
+            if rel not in paths:
+                paths.append(rel)
             rendered += 1
 
     for fig in figure_records:

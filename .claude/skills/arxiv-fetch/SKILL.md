@@ -35,6 +35,7 @@ Fetch a single arXiv paper and lay out its LaTeX source so the downstream wikip 
   figures.json          per-figure metadata: caption, label (e.g. fig:foo), section_file, image_refs (raw \includegraphics paths), resolved_paths (paths under raw/, may point into figures/ or _tikz/), has_tikz, tikz_sources (raw \begin{tikzpicture}...\end{tikzpicture} blocks), available, subfigures[]; plus stats {total, with_image, tikz_only, missing}
   arxiv_meta.json       arXiv API metadata (title, authors, abstract, categories, version, primary_class)
   *.bib / *.bbl         bibliography sources, copied verbatim for downstream citation resolution
+  comments.txt          comments stripped from the source (author notes, commented-out text), tagged file:line against raw/_source/. NOT part of the published paper — never inlined into sections or content.md; worth a downstream skim for author intent. Absent when the source has no substantive comments.
   paper.pdf             only present when no LaTeX source available
   no_source.flag        only present when no LaTeX source available
 ```

@@ -12,7 +12,10 @@ Pipeline:
   5. Copy raster figures and convert EPS/PDF figures to PNG. (figures)
   6. Extract figure metadata (caption, label, image refs, has_tikz) into
      figures.json. (figures)
-  7. Surface bibliography files and write structure.json.
+  7. Surface bibliography files, preserve stripped source comments in
+     raw/comments.txt (author workshop material — never inlined into the
+     working text, where a commented \\input would be a false include),
+     and write structure.json.
   8. Derive content.md — the bundle contract's single-file, LLM-legible
      rendition of the source (content_md.py: translator passes over the
      LaTeX body — figures placed in-line as markdown with captions; the
@@ -54,6 +57,48 @@ from sections import (
 from content_md import write_content_md
 from tex_utils import strip_comments
 from tikz_render import render_tikz_figures, sanitize_preamble
+
+
+def write_comments_sidecar(
+    raw_dir: Path, comments: dict[str, list[tuple[int, str]]]
+) -> Path | None:
+    """Write collected source comments to raw/comments.txt.
+
+    Consecutive comment lines merge into one block (commented-out paragraphs
+    read as prose). Returns the path, or None when nothing substantive was
+    collected.
+    """
+    chunks: list[str] = []
+    for fname in sorted(comments):
+        items = comments[fname]
+        if not items:
+            continue
+        chunks.append(f"==== {fname} ====")
+        block: list[str] = []
+        block_start = prev = None
+        def flush() -> None:
+            if block:
+                lines = f"L{block_start}" + (f"-L{prev}" if prev != block_start else "")
+                chunks.append(f"{lines}: " + "\n".join(block))
+        for n, text in items:
+            if prev is not None and n == prev + 1:
+                block.append(text)
+            else:
+                flush()
+                block = [text]
+                block_start = n
+            prev = n
+        flush()
+        chunks.append("")
+    if not chunks:
+        return None
+    out = raw_dir / "comments.txt"
+    out.write_text(
+        "Comments stripped from the LaTeX source — author notes and commented-out\n"
+        "text, NOT part of the published paper. Line numbers refer to the verbatim\n"
+        "files under raw/_source/.\n\n" + "\n".join(chunks).rstrip() + "\n"
+    )
+    return out
 
 
 def main() -> int:
@@ -114,7 +159,14 @@ def main() -> int:
 
     main_tex = find_main_tex(source_root)
     print(f"main file: {main_tex.relative_to(source_root)}")
-    main_text = strip_comments(main_tex.read_text(encoding="utf-8", errors="replace"))
+    # Comments are stripped from the working text (a commented \input is not
+    # an include) but collected into raw/comments.txt — author workshop
+    # material, sometimes worth a downstream skim.
+    comments: dict[str, list[tuple[int, str]]] = {}
+    main_text = strip_comments(
+        main_tex.read_text(encoding="utf-8", errors="replace"),
+        collect=comments.setdefault(str(main_tex.relative_to(source_root)), []),
+    )
     preamble, body = split_preamble(main_text)
 
     (raw_dir / "preamble.tex").write_text(preamble.strip() + "\n")
@@ -125,12 +177,16 @@ def main() -> int:
     top_inputs = find_top_level_inputs(body)
     warnings: list[str] = []
     if len(top_inputs) >= 2:
-        parts, split_warnings = split_body_by_input(body, source_root, main_tex.parent)
+        parts, split_warnings = split_body_by_input(
+            body, source_root, main_tex.parent, comments=comments
+        )
         warnings.extend(split_warnings)
     else:
         # Monolithic — fully inline (in case there are scattered \input's), then split on \section
         visited: set[Path] = set()
-        inlined = inline_includes(body, main_tex.parent, source_root, visited, warnings)
+        inlined = inline_includes(
+            body, main_tex.parent, source_root, visited, warnings, comments=comments
+        )
         parts = split_body_by_section(inlined)
 
     structure: list[dict] = []
@@ -163,6 +219,8 @@ def main() -> int:
         json.dumps({"figures": figure_records, "stats": stats}, indent=2, ensure_ascii=False)
     )
 
+    comments_path = write_comments_sidecar(raw_dir, comments)
+
     # Surface bibliography files for downstream citation resolution.
     for bib in source_root.rglob("*.bib"):
         shutil.copy2(bib, raw_dir / bib.name)
@@ -186,6 +244,9 @@ def main() -> int:
     content_path = write_content_md(out_dir, raw_dir)
 
     print(f"wrote {len(structure)} sections to {sections_dir}")
+    if comments_path:
+        n_comments = sum(len(v) for v in comments.values())
+        print(f"preserved {n_comments} source comments in {comments_path}")
     print(f"derived {content_path} ({content_path.stat().st_size:,} bytes)")
     print(
         f"figures: {stats['total']} total, "

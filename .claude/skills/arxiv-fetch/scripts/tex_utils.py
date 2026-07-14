@@ -12,9 +12,29 @@ import re
 COMMENT_RE = re.compile(r"(?<!\\)%.*$", re.MULTILINE)
 
 
-def strip_comments(tex: str) -> str:
-    """Remove `%`-to-end-of-line comments while preserving escaped `\\%`."""
-    return COMMENT_RE.sub("", tex)
+def strip_comments(tex: str, collect: list[tuple[int, str]] | None = None) -> str:
+    """Remove `%`-to-end-of-line comments while preserving escaped `\\%`.
+
+    When `collect` is given, substantive stripped comments are appended to it
+    as (1-based line number, comment text). Separator art (`%%%%`, `% ====`)
+    and bare line-continuation `%` are skipped — only comments containing a
+    letter or digit are kept. Comments are author workshop material: they must
+    never enter the executed text (a commented \\input is not an include), but
+    they can carry intent worth surfacing, so callers may preserve them in a
+    sidecar. The verbatim originals always remain under raw/_source/.
+    """
+    if collect is None:
+        return COMMENT_RE.sub("", tex)
+    out_lines: list[str] = []
+    for n, line in enumerate(tex.split("\n"), start=1):
+        m = COMMENT_RE.search(line)
+        if m:
+            body = m.group(0).lstrip("%").strip()
+            if re.search(r"[A-Za-z0-9]", body):
+                collect.append((n, body))
+            line = line[: m.start()]
+        out_lines.append(line)
+    return "\n".join(out_lines)
 
 
 def extract_braced_arg(s: str, start: int) -> tuple[str | None, int]:

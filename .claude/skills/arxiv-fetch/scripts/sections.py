@@ -89,6 +89,7 @@ def inline_includes(
     visited: set[Path],
     warnings: list[str],
     depth: int = 0,
+    comments: dict[str, list[tuple[int, str]]] | None = None,
 ) -> str:
     """Recursively inline \\input/\\include/\\subfile, with cycle protection."""
     if depth > 32:
@@ -110,8 +111,11 @@ def inline_includes(
         except OSError as e:
             warnings.append(f"unreadable include {path}: {e}")
             return m.group(0)
-        sub = strip_comments(sub)
-        return inline_includes(sub, path.parent, root, visited, warnings, depth + 1)
+        collect = None
+        if comments is not None:
+            collect = comments.setdefault(str(path.relative_to(root)), [])
+        sub = strip_comments(sub, collect=collect)
+        return inline_includes(sub, path.parent, root, visited, warnings, depth + 1, comments)
 
     return INPUT_RE.sub(repl, tex)
 
@@ -165,7 +169,10 @@ def split_body_by_section(body: str) -> list[tuple[str, str]]:
 
 
 def split_body_by_input(
-    raw_main_body: str, root: Path, base: Path
+    raw_main_body: str,
+    root: Path,
+    base: Path,
+    comments: dict[str, list[tuple[int, str]]] | None = None,
 ) -> tuple[list[tuple[str, str]], list[str]]:
     """For multi-file papers: one section per top-level \\input, with nested includes inlined.
 
@@ -198,8 +205,13 @@ def split_body_by_input(
                 warnings.append(f"unreadable include {path}: {e}")
                 cursor = m.end()
                 continue
-            sub = strip_comments(sub)
-            inlined = inline_includes(sub, path.parent, root, visited_local, warnings)
+            collect = None
+            if comments is not None:
+                collect = comments.setdefault(str(path.relative_to(root)), [])
+            sub = strip_comments(sub, collect=collect)
+            inlined = inline_includes(
+                sub, path.parent, root, visited_local, warnings, comments=comments
+            )
             title = first_section_title(inlined) or path.stem
             parts.append((title, inlined))
         cursor = m.end()
