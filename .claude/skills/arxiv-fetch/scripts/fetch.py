@@ -211,7 +211,9 @@ def main() -> int:
     )
 
     sanitized = sanitize_preamble(preamble)
-    tikz_warnings = render_tikz_figures(figure_records, raw_dir, sanitized, source_root)
+    tikz_warnings = render_tikz_figures(
+        figure_records, raw_dir, sanitized, source_root, main_tex=main_tex, bundle_dir=out_dir
+    )
     warnings.extend(tikz_warnings)
 
     stats = figure_stats(figure_records)
