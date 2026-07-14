@@ -6,7 +6,11 @@ Checks:
     Concepts require:           slug, title, type, ingested.
   - Frontmatter slug matches the filename stem.
   - Pages live under pages/papers/ or pages/concepts/ matching their type.
-  - Every [[wiki-link]] in page bodies resolves to an existing page.
+  - Every [[wiki-link]] in page bodies resolves to an existing page or a
+    staged source doc under sources/.
+  - A paper-like page's `source_doc:` frontmatter points at an existing
+    sources/<name>.md (staged by stage_source.py); paper-like pages without
+    `source_doc:` are flagged (informational).
   - Paper-like pages (paper, video, pdf) contain no markdown image embeds.
     Figures belong on concept pages, where they teach a concept; paper pages
     summarise and link out. Embedding on a paper page also breaks rendering

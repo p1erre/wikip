@@ -24,6 +24,8 @@ Fetch a single arXiv paper and lay out its LaTeX source so the downstream wikip 
 ## Output structure
 
 ```
+<out_dir>/
+  content.md            bundle contract: single-file, LLM-legible rendition of the source — YAML frontmatter (title, arxiv_id) + preamble and sections concatenated in structure.json order inside a ````latex fence, followed by a ## Figures gallery (from figures.json: every figure/subfigure embedded via raw/-relative refs with its full caption as blockquote text; unrendered TikZ falls back to fenced source + caption). Read by wikip's source-doc staging; synthesis still reads raw/sections/ lazily.
 <out_dir>/raw/
   preamble.tex          everything before \begin{document} (document class, packages, custom macros)
   sections/01_*.tex     one file per top-level \input boundary (or per top-level \section{} if monolithic), nested \input's already inlined; leading block is 01_front-matter.tex (title/authors/abstract)
@@ -39,7 +41,12 @@ Fetch a single arXiv paper and lay out its LaTeX source so the downstream wikip 
 
 ## Idempotency
 
-Skips if `raw/structure.json` (or `raw/no_source.flag`) already exists. To force a refetch, delete `<out_dir>/raw/`.
+Skips if `raw/structure.json` (or `raw/no_source.flag`) already exists; the skip path self-heals a missing `content.md`. To force a refetch, delete `<out_dir>/raw/`.
+
+To (re)derive `content.md` for an already-extracted bundle without any network access (e.g. retrofitting legacy bundles):
+```bash
+uv run python3 .claude/skills/arxiv-fetch/scripts/fetch.py "<arxiv-id>" --out-dir "<out_dir>" --derive-only
+```
 
 ## Failure modes
 
@@ -48,10 +55,11 @@ Skips if `raw/structure.json` (or `raw/no_source.flag`) already exists. To force
 - **Tarball is a single PDF**: treated as no source — `no_source.flag` is written.
 - **Cyclic `\input`**: resolver tracks visited paths and skips on cycle. Logged in `raw/structure.json` warnings.
 - **Unresolvable `\input` path**: the include is left verbatim and logged in warnings.
+- **Include-like macros the resolver doesn't inline** (`\lstinputlisting`, `\verbatiminput`, `\inputminted`, `\includestandalone`, unbraced `\input file`, …): detected after splitting and logged in warnings as `unhandled include macro` — content may be missing from sections, but the original file remains under `raw/_source/`. (`\input`/`\include`/`\subfile`/`\import`/`\subimport` are resolved.)
 
 ## Notes
 
-- This skill does NOT convert LaTeX to markdown. The downstream wikip skill reads `raw/sections/*.tex` directly when synthesising wiki content, avoiding a redundant Claude pass through an intermediate markdown file.
+- This skill does NOT convert LaTeX to markdown. `content.md` is a *concatenation* of the LaTeX inside a fence (the bundle contract's legible single-file rendition), not a conversion. The downstream wikip skill reads `raw/sections/*.tex` directly when synthesising wiki content, avoiding a redundant Claude pass through an intermediate markdown file.
 - This skill does NOT resolve bibliography keys to full citations. The `.bib` / `.bbl` files in `raw/` let a downstream skill do that.
 - arXiv API metadata uses `https://export.arxiv.org/api/query?id_list=<id>` — no key required, but rate-limited to ~1 req/3s.
 - System deps:
