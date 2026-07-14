@@ -14,8 +14,10 @@ Pipeline:
      figures.json. (figures)
   7. Surface bibliography files and write structure.json.
   8. Derive content.md — the bundle contract's single-file, LLM-legible
-     rendition of the source (preamble + sections concatenated, fenced as
-     LaTeX). Downstream skills (wikip source-doc staging) read only this.
+     rendition of the source (content_md.py: translator passes over the
+     LaTeX body — figures placed in-line as markdown with captions; the
+     rest passes through verbatim). Downstream skills (wikip source-doc
+     staging) read only this.
 
 Idempotent: skips if raw/structure.json or raw/no_source.flag already exists;
 the skip path self-heals a missing content.md. Use --derive-only to (re)write
@@ -49,89 +51,9 @@ from sections import (
     split_body_by_section,
     split_preamble,
 )
+from content_md import write_content_md
 from tex_utils import strip_comments
 from tikz_render import render_tikz_figures, sanitize_preamble
-
-# Four-backtick fences so occasional triple backticks inside the source
-# don't terminate the block.
-FENCE = "````"
-
-
-def figures_gallery(raw_dir: Path) -> str:
-    """Markdown gallery of every figure in figures.json.
-
-    Images are embedded via bundle-root-relative refs (raw/figures/...,
-    raw/_tikz/...) so downstream staging can rewrite them into a vault.
-    Full captions are kept as visible blockquote text — the author's own
-    description of each figure must never be lost. Figures without a
-    rendered image fall back to their raw TikZ source plus caption.
-    """
-    figures_path = raw_dir / "figures.json"
-    if not figures_path.exists():
-        return ""
-    records = json.loads(figures_path.read_text()).get("figures", [])
-    if not records:
-        return ""
-
-    def entry(rec: dict, heading: str, fallback_label: str) -> list[str]:
-        label = rec.get("label") or fallback_label
-        section = rec.get("section_file") or ""
-        lines = [f"{heading} {label}" + (f" — `{section}`" if section else ""), ""]
-        for p in dict.fromkeys(rec.get("resolved_paths", [])):  # dedupe, keep order
-            lines += [f"![{label}](raw/{p})", ""]
-        if not rec.get("resolved_paths") and rec.get("tikz_sources"):
-            lines += ["_No rendered image — raw TikZ source:_", ""]
-            for src in rec["tikz_sources"]:
-                lines += [f"{FENCE}latex\n{src.strip()}\n{FENCE}", ""]
-        caption = (rec.get("caption") or "").strip()
-        if caption:
-            lines += ["> " + caption.replace("\n", "\n> "), ""]
-        return lines
-
-    lines = ["## Figures", ""]
-    for i, rec in enumerate(records, start=1):
-        lines += entry(rec, "###", f"figure-{i}")
-        for j, sub in enumerate(rec.get("subfigures", []), start=1):
-            lines += entry(sub, "####", f"subfigure-{i}.{j}")
-    return "\n".join(lines).rstrip() + "\n"
-
-
-def write_content_md(out_dir: Path, raw_dir: Path) -> Path:
-    """Derive <out_dir>/content.md from the extracted LaTeX under raw/.
-
-    Preamble first (macro context), then sections in structure.json order,
-    each prefixed with a `% ==== <file> ====` marker. The whole body sits in
-    a four-backtick latex fence so the file is markdown-presentable as-is.
-    A `## Figures` gallery (figures_gallery) follows the fence so every
-    figure is visible with its caption, not just referenced in the LaTeX.
-    """
-    structure = json.loads((raw_dir / "structure.json").read_text())
-    meta_path = raw_dir / "arxiv_meta.json"
-    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
-    title = meta.get("title") or structure.get("arxiv_id", "")
-
-    parts: list[str] = []
-    preamble = raw_dir / "preamble.tex"
-    if preamble.exists():
-        parts.append(f"% ==== preamble.tex ====\n{preamble.read_text(errors='replace').strip()}")
-    for section in structure.get("sections", []):
-        sec = raw_dir / section["file"]
-        if sec.exists():
-            parts.append(
-                f"% ==== {section['file']} ====\n{sec.read_text(errors='replace').strip()}"
-            )
-
-    gallery = figures_gallery(raw_dir)
-    content_path = out_dir / "content.md"
-    content_path.write_text(
-        "---\n"
-        f"title: {json.dumps(title, ensure_ascii=False)}\n"
-        f"arxiv_id: {structure.get('arxiv_id', '')}\n"
-        "---\n\n"
-        f"{FENCE}latex\n" + "\n\n".join(parts) + f"\n{FENCE}\n"
-        + (f"\n{gallery}" if gallery else "")
-    )
-    return content_path
 
 
 def main() -> int:

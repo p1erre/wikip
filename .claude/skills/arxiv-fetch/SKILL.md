@@ -25,7 +25,7 @@ Fetch a single arXiv paper and lay out its LaTeX source so the downstream wikip 
 
 ```
 <out_dir>/
-  content.md            bundle contract: single-file, LLM-legible rendition of the source — YAML frontmatter (title, arxiv_id) + preamble and sections concatenated in structure.json order inside a ````latex fence, followed by a ## Figures gallery (from figures.json: every figure/subfigure embedded via raw/-relative refs with its full caption as blockquote text; unrendered TikZ falls back to fenced source + caption). Read by wikip's source-doc staging; synthesis still reads raw/sections/ lazily.
+  content.md            bundle contract: single-file, LLM-legible rendition of the source, produced by content_md.py's translator — ordered, conservative passes that rewrite constructs into markdown in place and pass everything else through as verbatim LaTeX. Currently: figure/table environments are replaced in-line with image embeds (raw/-relative refs) + full captions as blockquotes (unrendered TikZ falls back to fenced source + caption; unplaceable figures land in a trailing ## Figures gallery, never dropped). Preamble stays in a ````latex fence. Read by wikip's source-doc staging; synthesis still reads raw/sections/ lazily.
 <out_dir>/raw/
   preamble.tex          everything before \begin{document} (document class, packages, custom macros)
   sections/01_*.tex     one file per top-level \input boundary (or per top-level \section{} if monolithic), nested \input's already inlined; leading block is 01_front-matter.tex (title/authors/abstract)
