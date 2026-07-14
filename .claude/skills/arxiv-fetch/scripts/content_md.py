@@ -50,10 +50,26 @@ def _figure_md(rec: dict, fallback_label: str) -> str:
         lines: list[str] = []
         for p in dict.fromkeys(r.get("resolved_paths", [])):  # dedupe, keep order
             lines += [f"![{label}](raw/{p})", ""]
-        if not r.get("resolved_paths") and r.get("tikz_sources"):
+        tikz = r.get("tikz_sources") or []
+        if not r.get("resolved_paths") and tikz:
             lines += ["_No rendered image — raw TikZ source:_", ""]
-            for src in r["tikz_sources"]:
+            for src in tikz:
                 lines += [f"{FENCE}latex\n{src.strip()}\n{FENCE}", ""]
+        elif tikz:
+            # Render exists, but keep the source folded alongside it: the
+            # image is opaque to a text-reading agent, while the TikZ names
+            # every node, edge, and label. The vault's staged copy of this
+            # file is all an in-vault reader has — raw/ doesn't travel.
+            fenced = "\n\n".join(f"{FENCE}latex\n{s.strip()}\n{FENCE}" for s in tikz)
+            lines += [
+                "<details>",
+                "<summary>TikZ source of this figure</summary>",
+                "",
+                fenced,
+                "",
+                "</details>",
+                "",
+            ]
         caption = (r.get("caption") or "").strip()
         if caption:
             lines += [f"> **{label}** — " + caption.replace("\n", "\n> "), ""]
