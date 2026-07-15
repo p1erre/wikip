@@ -24,6 +24,8 @@ Fetches the transcript and metadata for any video URL. Uses yt-dlp to get captio
 4. Report what landed:
    - `<OUT>/metadata.json` — title, channel, duration, chapters, `transcript_source`
    - `<OUT>/transcript.txt` — timestamped plain text
+   - `<OUT>/content.md` — bundle contract: single-file, LLM-legible rendition (frontmatter + chapter list + complete fenced transcript, verbatim)
+   - `<OUT>/video_profile.json` — marker file; downstream skills (wikip) detect the bundle type by its presence
    - One-line summary: title, duration, segment count, source (`captions` or `whisper`).
 
 ## How it works
@@ -38,4 +40,8 @@ Fetches the transcript and metadata for any video URL. Uses yt-dlp to get captio
 
 ## Idempotency
 
-Skips all work if both `metadata.json` and `transcript.txt` already exist. Delete those files to force a re-fetch.
+Skips all work if both `metadata.json` and `transcript.txt` already exist — but self-heals a missing `content.md` / `video_profile.json` on that path, offline (the `url` argument is optional then):
+```bash
+uv run python3 .claude/skills/video-transcript-fetch/scripts/fetch.py --out-dir work/<slug>
+```
+Re-running over a legacy bundle upgrades it in place. Delete `metadata.json` + `transcript.txt` to force a full re-fetch.
