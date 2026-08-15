@@ -13,11 +13,10 @@ arxiv-fetch            ─┐
 pdf-extract            ─┤   book-reader: page-range helper for long PDFs
 web-fetch              ─┤
 video-transcript-fetch ─┼──→ bundle ──→ wikip ──→ Obsidian wiki
-clip                   ─┤
-deep-research          ─┘
+clip                   ─┘
 ```
 
-Fetchers handle the messy parts: LaTeX extraction, TikZ figure rendering, PDF OCR escalation, math recovery from HTML, caption-based transcription. When a source can't be fetched automatically (LinkedIn, paywalled posts) you hand it to `clip`; to synthesise a topic across many web sources at once, `deep-research` runs a native search loop and emits a bundle directly. `wikip` is a synthesis skill — it decides what concept pages to create, how to link them, and how to update existing pages when a new source overlaps with what the corpus already knows. Once several sources have landed, `reconcile-corpora` audits concept overlap across vaults.
+Fetchers handle the messy parts: LaTeX extraction, TikZ figure rendering, PDF OCR escalation, math recovery from HTML, caption-based transcription. When a source can't be fetched automatically (LinkedIn, paywalled posts) you hand it to `clip`. `wikip` is a synthesis skill — it decides what concept pages to create, how to link them, and how to update existing pages when a new source overlaps with what the corpus already knows. Once several sources have landed, `reconcile-corpora` audits concept overlap across vaults.
 
 ## Install
 
@@ -85,7 +84,6 @@ python3 .claude/skills/wikip/scripts/validate.py wikis/my-wiki
 | `/web-fetch` | URL | Fetches page with math recovery (KaTeX / MathJax / MathML), downloads figures; crawls multi-page docs sites |
 | `/video-transcript-fetch` | Video URL | Fetches captions or transcribes with Whisper; works with YouTube and 1000+ sites |
 | `/clip` | Pasted text + image URLs | Builds a bundle from hand-copied content (LinkedIn, tweets, paywalled posts) that can't be fetched automatically |
-| `/deep-research` | Natural-language query | Runs a native multi-iteration web research loop (WebSearch + WebFetch + agents) and emits a bundle — no external APIs |
 | `/wikip` | Bundle dir | Synthesizes paper and concept pages, updates `graph.json` |
 | `/reconcile-corpora` | `wikis/` dir | Audits concept overlap across vaults: confirms bridges, surfaces slug synonyms, regenerates `CONNECTIONS.md` |
 
