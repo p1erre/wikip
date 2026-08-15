@@ -268,20 +268,203 @@ def compile_to_pdf(tex_path: Path, source_root: Path, timeout: int = 60) -> tupl
     return tex_abs.with_suffix(".pdf").exists(), ""
 
 
-def pdf_to_png(pdf: Path, dest: Path, dpi: int = 200) -> tuple[bool, str]:
-    pdf_abs = pdf.resolve()
-    dest_abs = dest.resolve()
+def crop_pdf(pdf: Path, timeout: int = 60) -> Path:
+    """pdfcrop to a sibling file; return the cropped path, or the original on failure.
+
+    Needed because paper .sty files reachable via TEXINPUTS can override the
+    standalone class's tight page geometry (full letter pages, content pushed
+    to a later page). pdfcrop restores a content-tight bounding box per page.
+    """
+    if shutil.which("pdfcrop") is None:
+        return pdf
+    cropped = pdf.with_name(pdf.stem + "_crop.pdf")
     try:
         proc = subprocess.run(
-            ["pdftoppm", "-png", "-r", str(dpi), "-singlefile", str(pdf_abs), str(dest_abs.with_suffix(""))],
-            capture_output=True,
-            timeout=60,
+            ["pdfcrop", str(pdf), str(cropped)], capture_output=True, timeout=timeout
         )
+    except subprocess.TimeoutExpired:
+        return pdf
+    return cropped if proc.returncode == 0 and cropped.exists() else pdf
+
+
+def pdf_pages(pdf: Path) -> int:
+    if shutil.which("pdfinfo") is None:
+        return 1
+    try:
+        proc = subprocess.run(["pdfinfo", str(pdf)], capture_output=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        return 1
+    m = re.search(r"^Pages:\s+(\d+)", proc.stdout.decode(errors="replace"), re.MULTILINE)
+    return int(m.group(1)) if m else 1
+
+
+def pdf_to_png(pdf: Path, dest: Path, dpi: int = 200, page: int | None = None) -> tuple[bool, str]:
+    pdf_abs = pdf.resolve()
+    dest_abs = dest.resolve()
+    cmd = ["pdftoppm", "-png", "-r", str(dpi), "-singlefile"]
+    if page is not None:
+        cmd += ["-f", str(page), "-l", str(page)]
+    cmd += [str(pdf_abs), str(dest_abs.with_suffix(""))]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=60)
     except subprocess.TimeoutExpired:
         return False, "pdftoppm timed out"
     if proc.returncode != 0:
         return False, proc.stderr.decode(errors="replace")[:300]
     return dest.exists(), ""
+
+
+TIKZPICTURE_RE = re.compile(r"\\begin\{tikzpicture\}.*?\\end\{tikzpicture\}", re.DOTALL)
+
+
+def _normalize_tikz(s: str) -> str:
+    return re.sub(r"\s+", "", s)
+
+
+def render_via_external(
+    figure_records: list[dict],
+    raw_dir: Path,
+    out_dir: Path | None,
+    source_root: Path,
+    main_tex: Path,
+    warnings: list[str],
+    timeout: int = 180,
+) -> None:
+    """Compiler-first rendering: compile the REAL paper with TikZ's external
+    library and harvest each picture as its own tightly-cropped PDF.
+
+    No preamble surgery: the paper's own class, styles, and .bbl are in
+    effect, so pictures depending on body-defined macros/colors render
+    correctly and page-geometry never interferes. We drive the per-figure
+    jobs ourselves (no -shell-escape needed).
+
+    Best-effort: fills resolved_paths on the records it manages to render and
+    warns about the rest; the standalone fallback mops up whatever is left.
+    Also keeps the compiled paper as <out_dir>/paper.pdf when out_dir is given.
+    """
+    work = raw_dir / "_tikz" / "_ext"
+    work.mkdir(parents=True, exist_ok=True)
+    raw_text = main_tex.read_text(encoding="utf-8", errors="replace")
+    idx = raw_text.find(r"\begin{document}")
+    if idx < 0:
+        warnings.append("external render: no \\begin{document} in main tex")
+        return
+    ext_tex = work / "main_ext.tex"
+    ext_tex.write_text(
+        raw_text[:idx]
+        + "\\usetikzlibrary{external}\\tikzexternalize[mode=list only]\n"
+        + raw_text[idx:]
+    )
+
+    env = dict(os.environ)
+    env["TEXINPUTS"] = (
+        f".:{work.resolve()}//:{source_root.resolve()}//:" + env.get("TEXINPUTS", "")
+    )
+
+    def run(jobname: str | None = None) -> tuple[bool, str]:
+        cmd = [
+            "pdflatex", "-interaction=nonstopmode", "-halt-on-error",
+            "-no-shell-escape", "-output-directory", str(work.resolve()),
+        ]
+        if jobname:
+            cmd += [
+                "-jobname", jobname,
+                f"\\def\\tikzexternalrealjob{{main_ext}}\\input{{{ext_tex.resolve()}}}",
+            ]
+        else:
+            cmd.append(str(ext_tex.resolve()))
+        try:
+            proc = subprocess.run(
+                cmd, cwd=main_tex.parent, env=env, capture_output=True, timeout=timeout
+            )
+        except subprocess.TimeoutExpired:
+            return False, "pdflatex timed out"
+        if proc.returncode != 0:
+            log = proc.stdout.decode(errors="replace")
+            tail = "\n".join(l for l in log.splitlines() if l.startswith(("!", "l.")))
+            return False, (tail or log)[-400:]
+        return True, ""
+
+    # Two main passes: first writes the .figlist (and .aux), second stabilises
+    # cross-references so the kept paper.pdf reads cleanly.
+    for _ in range(2):
+        ok, err = run()
+        if not ok:
+            warnings.append(
+                f"external render: main compile failed: {err.splitlines()[0] if err else '?'}"
+            )
+            return
+    if out_dir is not None and (work / "main_ext.pdf").exists():
+        shutil.copy2(work / "main_ext.pdf", out_dir / "paper.pdf")
+
+    figlist = work / "main_ext.figlist"
+    if not figlist.exists():
+        warnings.append("external render: no .figlist produced")
+        return
+    names = [l.strip() for l in figlist.read_text().splitlines() if l.strip()]
+
+    # Document-order tikz blocks from the flattened sections; index-align
+    # against the figlist. A count mismatch means a picture exists that our
+    # flattening didn't capture (or vice versa) — mapping would be unsafe.
+    all_blocks: list[str] = []
+    for sec in sorted((raw_dir / "sections").glob("*.tex")):
+        for m in TIKZPICTURE_RE.finditer(sec.read_text(errors="replace")):
+            all_blocks.append(_normalize_tikz(m.group(0)))
+    if len(names) != len(all_blocks):
+        warnings.append(
+            f"external render: {len(names)} externalized pictures vs "
+            f"{len(all_blocks)} in flattened sections — mapping unsafe, skipping"
+        )
+        return
+
+    out_tikz = raw_dir / "_tikz"
+    counter = 0
+    rendered = 0
+    used: set[int] = set()
+
+    def render_scope(scope: dict, scope_label: str | None) -> None:
+        nonlocal counter, rendered
+        if scope.get("resolved_paths"):
+            return
+        sources: list[str] = scope.get("tikz_sources", []) or []
+        paths = scope.setdefault("resolved_paths", [])
+        for k, src in enumerate(sources, start=1):
+            counter += 1
+            base = _slug_for(scope_label, counter)
+            slug = base if k == 1 else f"{base}-{k}"
+            png_dest = out_tikz / f"{slug}.png"
+            rel = f"_tikz/{png_dest.name}"
+            norm = _normalize_tikz(src)
+            i = next(
+                (j for j, b in enumerate(all_blocks) if j not in used and b == norm), None
+            )
+            if i is None:
+                warnings.append(f"external render: no document match for {slug}")
+                continue
+            used.add(i)
+            pdf = work / f"{names[i]}.pdf"
+            if not pdf.exists():
+                ok, err = run(jobname=names[i])
+                if not ok:
+                    warnings.append(
+                        f"external render failed for {slug}: "
+                        f"{err.splitlines()[0] if err else '?'}"
+                    )
+                    continue
+            ok, err = pdf_to_png(pdf, png_dest)
+            if not ok:
+                warnings.append(f"external rasterise failed for {slug}: {err}")
+                continue
+            if rel not in paths:
+                paths.append(rel)
+            rendered += 1
+
+    for fig in figure_records:
+        render_scope(fig, fig.get("label"))
+        for sub in fig.get("subfigures", []):
+            render_scope(sub, sub.get("label") or fig.get("label"))
+    if rendered:
+        warnings.append(f"tikz render (external, true context): {rendered} figure(s)")
 
 
 def _slug_for(label: str | None, fallback_n: int) -> str:
@@ -296,12 +479,18 @@ def render_tikz_figures(
     raw_dir: Path,
     sanitized_preamble: str,
     source_root: Path,
+    main_tex: Path | None = None,
+    bundle_dir: Path | None = None,
 ) -> list[str]:
     """Render every TikZ block; mutate figure_records in-place to add resolved paths.
 
-    Returns warnings. Records that already have resolved_paths (raster) are skipped:
-    a paper that ships both a PDF and a TikZ source for the same figure is happy
-    with the PDF render.
+    Compiler-first: when main_tex is given, render_via_external compiles the
+    real paper and harvests pictures in true context (also keeping
+    <bundle_dir>/paper.pdf). The standalone-rebuild loop below then mops up
+    only what external rendering left unresolved. Returns warnings. Records
+    that already have resolved_paths (raster) are skipped: a paper that ships
+    both a PDF and a TikZ source for the same figure is happy with the PDF
+    render.
     """
     warnings: list[str] = []
     if shutil.which("pdflatex") is None:
@@ -310,6 +499,11 @@ def render_tikz_figures(
     if shutil.which("pdftoppm") is None:
         warnings.append("pdftoppm not installed — skipping TikZ rendering")
         return warnings
+
+    if main_tex is not None:
+        render_via_external(
+            figure_records, raw_dir, bundle_dir, source_root, main_tex, warnings
+        )
 
     out_dir = raw_dir / "_tikz"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -326,12 +520,18 @@ def render_tikz_figures(
         sources: list[str] = scope.get("tikz_sources", []) or []
         if not sources:
             return
-        for src in sources:
+        for k, src in enumerate(sources, start=1):
             counter += 1
-            slug = _slug_for(scope_label, counter)
+            base = _slug_for(scope_label, counter)
+            # A figure can hold several tikzpictures (subplots); each needs its
+            # own file or later blocks silently overwrite / skip via the cache.
+            slug = base if k == 1 else f"{base}-{k}"
             png_dest = out_dir / f"{slug}.png"
+            rel = f"_tikz/{png_dest.name}"
+            paths = scope.setdefault("resolved_paths", [])
             if png_dest.exists():
-                scope.setdefault("resolved_paths", []).append(f"_tikz/{png_dest.name}")
+                if rel not in paths:
+                    paths.append(rel)
                 rendered += 1
                 continue
             tex_path = work_dir / f"{slug}.tex"
@@ -340,11 +540,21 @@ def render_tikz_figures(
             if not ok:
                 warnings.append(f"tikz compile failed for {slug}: {err.splitlines()[0] if err else 'no log'}")
                 continue
-            ok, err = pdf_to_png(tex_path.with_suffix(".pdf"), png_dest)
+            # Paper .sty files can defeat standalone's tight geometry: full
+            # letter pages, figure pushed past a blank first page. Crop back
+            # to content and rasterise the last page, where the picture lands.
+            pdf = crop_pdf(tex_path.with_suffix(".pdf"))
+            pages = pdf_pages(pdf)
+            if pages > 1:
+                warnings.append(
+                    f"tikz {slug}: {pages}-page pdf (page-geometry override); using last page"
+                )
+            ok, err = pdf_to_png(pdf, png_dest, page=pages if pages > 1 else None)
             if not ok:
                 warnings.append(f"tikz rasterise failed for {slug}: {err}")
                 continue
-            scope.setdefault("resolved_paths", []).append(f"_tikz/{png_dest.name}")
+            if rel not in paths:
+                paths.append(rel)
             rendered += 1
 
     for fig in figure_records:

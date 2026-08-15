@@ -2,9 +2,11 @@
 
 This module is the LaTeX *structure* layer: it takes the unpacked source tree
 and turns it into (preamble.tex, sections/01_*.tex, ...). It handles
-\\input/\\include/\\subfile resolution, recursive flattening with cycle
-protection, and splits at the natural boundaries (top-level \\input or, for
-monolithic papers, top-level \\section{}).
+\\input/\\include/\\subfile/\\import/\\subimport resolution, recursive
+flattening with cycle protection, and splits at the natural boundaries
+(top-level \\input or, for monolithic papers, top-level \\section{}).
+Include-like macros it does not resolve are detected and surfaced as
+warnings (find_unhandled_includes) rather than silently dropped.
 """
 
 from __future__ import annotations
@@ -15,9 +17,39 @@ from pathlib import Path
 
 from tex_utils import strip_comments
 
-INPUT_RE = re.compile(r"\\(?:input|include|subfile)\s*\{([^}]+)\}")
+# One-argument includes plus two-argument \import{dir}{file} / \subimport.
+# resolve_path tries the target against both the current file's dir and the
+# project root, which covers import (root-relative) and subimport (file-relative).
+INPUT_RE = re.compile(
+    r"\\(?:input|include|subfile)\s*\{(?P<file>[^}]+)\}"
+    r"|\\(?:import|subimport)\s*\{(?P<dir>[^}]*)\}\s*\{(?P<impfile>[^}]+)\}"
+)
 SECTION_RE = re.compile(r"^\s*\\section\*?\s*\{(.+?)\}", re.MULTILINE)
 TITLE_HINT_RE = re.compile(r"\\(?:section|chapter)\*?\s*\{(.+?)\}")
+
+# Include-like macros the resolver does NOT inline. If one survives into a
+# section file, its content is missing from the bundle without any resolver
+# error — detect and warn so the failure is visible instead of silent.
+# (The referenced file is still on disk under raw/_source/ for manual reading.)
+UNHANDLED_INCLUDE_RE = re.compile(
+    r"\\(?:includestandalone|InputIfFileExists|subfileinclude|lstinputlisting|verbatiminput)\s*\{[^}]*\}"
+    r"|\\inputminted\s*\{[^}]*\}\s*\{[^}]*\}"
+    r"|\\input\s+[A-Za-z0-9_./-]+"
+)
+
+
+def include_target(m: re.Match[str]) -> str:
+    """File target of an INPUT_RE match; joins \\import's dir and file args."""
+    if m.group("file") is not None:
+        return m.group("file").strip()
+    d = m.group("dir").strip()
+    f = m.group("impfile").strip()
+    return f"{d.rstrip('/')}/{f}" if d else f
+
+
+def find_unhandled_includes(tex: str) -> list[str]:
+    """Return include-like macro invocations that the resolver left un-inlined."""
+    return [m.group(0) for m in UNHANDLED_INCLUDE_RE.finditer(tex)]
 
 
 def find_main_tex(root: Path) -> Path:
@@ -57,6 +89,7 @@ def inline_includes(
     visited: set[Path],
     warnings: list[str],
     depth: int = 0,
+    comments: dict[str, list[tuple[int, str]]] | None = None,
 ) -> str:
     """Recursively inline \\input/\\include/\\subfile, with cycle protection."""
     if depth > 32:
@@ -64,7 +97,7 @@ def inline_includes(
         return tex
 
     def repl(m: re.Match[str]) -> str:
-        target = m.group(1).strip()
+        target = include_target(m)
         path = resolve_path(target, base, root)
         if path is None:
             warnings.append(f"unresolved include: {target} (from {base})")
@@ -78,8 +111,11 @@ def inline_includes(
         except OSError as e:
             warnings.append(f"unreadable include {path}: {e}")
             return m.group(0)
-        sub = strip_comments(sub)
-        return inline_includes(sub, path.parent, root, visited, warnings, depth + 1)
+        collect = None
+        if comments is not None:
+            collect = comments.setdefault(str(path.relative_to(root)), [])
+        sub = strip_comments(sub, collect=collect)
+        return inline_includes(sub, path.parent, root, visited, warnings, depth + 1, comments)
 
     return INPUT_RE.sub(repl, tex)
 
@@ -113,7 +149,7 @@ def find_top_level_inputs(main_tex_body: str) -> list[tuple[int, int, str]]:
     Only used to detect whether the paper is multi-file or monolithic — we don't
     use these positions for content extraction (inline_includes already handled that).
     """
-    return [(m.start(), m.end(), m.group(1).strip()) for m in INPUT_RE.finditer(main_tex_body)]
+    return [(m.start(), m.end(), include_target(m)) for m in INPUT_RE.finditer(main_tex_body)]
 
 
 def split_body_by_section(body: str) -> list[tuple[str, str]]:
@@ -133,7 +169,10 @@ def split_body_by_section(body: str) -> list[tuple[str, str]]:
 
 
 def split_body_by_input(
-    raw_main_body: str, root: Path, base: Path
+    raw_main_body: str,
+    root: Path,
+    base: Path,
+    comments: dict[str, list[tuple[int, str]]] | None = None,
 ) -> tuple[list[tuple[str, str]], list[str]]:
     """For multi-file papers: one section per top-level \\input, with nested includes inlined.
 
@@ -152,7 +191,7 @@ def split_body_by_input(
             label = "front-matter" if cursor == 0 else f"interlude-{counter}"
             parts.append((label, between))
             counter += 1
-        target = m.group(1).strip()
+        target = include_target(m)
         path = resolve_path(target, base, root)
         if path is None:
             warnings.append(f"unresolved include: {target}")
@@ -166,8 +205,13 @@ def split_body_by_input(
                 warnings.append(f"unreadable include {path}: {e}")
                 cursor = m.end()
                 continue
-            sub = strip_comments(sub)
-            inlined = inline_includes(sub, path.parent, root, visited_local, warnings)
+            collect = None
+            if comments is not None:
+                collect = comments.setdefault(str(path.relative_to(root)), [])
+            sub = strip_comments(sub, collect=collect)
+            inlined = inline_includes(
+                sub, path.parent, root, visited_local, warnings, comments=comments
+            )
             title = first_section_title(inlined) or path.stem
             parts.append((title, inlined))
         cursor = m.end()

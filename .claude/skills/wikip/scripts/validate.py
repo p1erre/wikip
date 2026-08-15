@@ -6,7 +6,11 @@ Checks:
     Concepts require:           slug, title, type, ingested.
   - Frontmatter slug matches the filename stem.
   - Pages live under pages/papers/ or pages/concepts/ matching their type.
-  - Every [[wiki-link]] in page bodies resolves to an existing page.
+  - Every [[wiki-link]] in page bodies resolves to an existing page or a
+    staged source doc under sources/.
+  - A paper-like page's `source_doc:` frontmatter points at an existing
+    sources/<name>.md (staged by stage_source.py); paper-like pages without
+    `source_doc:` are flagged (informational).
   - Paper-like pages (paper, video, pdf) contain no markdown image embeds.
     Figures belong on concept pages, where they teach a concept; paper pages
     summarise and link out. Embedding on a paper page also breaks rendering
@@ -125,9 +129,15 @@ def main() -> int:
     predicates = schema.get("predicates", {})
     graph = json.loads(graph_path.read_text())
     pages = collect_pages(pages_dir)
+    sources_dir = wiki / "sources"
+    source_docs = {p.stem for p in sources_dir.glob("*.md")} if sources_dir.is_dir() else set()
 
     errors: list[str] = []
     warnings: list[str] = []
+
+    # Source docs share the [[wiki-link]] namespace with page slugs.
+    for stem in sorted(source_docs & pages.keys()):
+        errors.append(f"sources/{stem}.md collides with page slug {stem!r}")
 
     # Detect filename collisions across subdirs
     seen_paths: dict[str, list[Path]] = defaultdict(list)
@@ -164,11 +174,18 @@ def main() -> int:
                 f"{slug}.md: type={ptype} but lives under pages/{info['subdir']}/, "
                 f"expected pages/{expected}/"
             )
-        # 2. Wiki-link resolution
+        # 2. Wiki-link resolution (pages and staged source docs both resolve)
         for m in WIKI_LINK_RE.finditer(info["body"]):
             target = m.group(1).strip()
-            if target not in pages:
+            if target not in pages and target not in source_docs:
                 errors.append(f"{slug}.md: broken [[wiki-link]] to '{target}'")
+        # 2a. source_doc frontmatter: dangling is an error; absent on a
+        # paper-like page is informational (bundle may be gone or underivable).
+        source_doc = str(fm.get("source_doc", "")).strip()
+        if source_doc and source_doc not in source_docs:
+            errors.append(f"{slug}.md: source_doc '{source_doc}' has no file under sources/")
+        if ptype in PAPER_LIKE_TYPES and not source_doc:
+            warnings.append(f"page {slug!r} has no source_doc (no staged source text)")
         # 2b. Paper-like pages must not embed figures.
         # Figures belong on concept pages, where they teach a concept; paper
         # pages summarise and link out. (Embedding on a paper page also breaks

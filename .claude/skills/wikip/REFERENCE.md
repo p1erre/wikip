@@ -14,6 +14,7 @@ slug: knowledge-graphs-hogan-2020   # filename stem; must match the file. Title-
 title: "Knowledge Graphs (Hogan et al., 2020)"
 source: arxiv-2003.02320            # bundle directory basename (provenance; how the source was fetched)
 url: https://arxiv.org/abs/2003.02320  # original URL of the source
+source_doc: knowledge-graphs-hogan-2020-source  # staged full source text under sources/ (set when stage_source.py staged one)
 type: paper                         # paper | video | pdf
 date: 2020-03                       # YYYY or YYYY-MM (best estimate)
 authors: [Hogan, Blomqvist, ...]    # for papers/videos with named authors
@@ -22,7 +23,7 @@ ingested: 2026-05-01                # date this page was written
 ---
 ```
 
-`slug`, `title`, `source`, `type`, `ingested` are required. `url` is required whenever the source has one (everything except a local-only PDF); set it to the canonical link (arxiv `abs_url`, the video `url`, the web/clip `original_url`, etc.). Echo it as a visible `**URL:** …` line near the top of the body so it's readable in any renderer, not just in frontmatter.
+`slug`, `title`, `source`, `type`, `ingested` are required. `url` is required whenever the source has one (everything except a local-only PDF); set it to the canonical link (arxiv `abs_url`, the video `url`, the web/clip `original_url`, etc.). Echo it as a visible `**URL:** …` line near the top of the body so it's readable in any renderer, not just in frontmatter. `source_doc` is required whenever a source doc was staged (the normal case); echo it too as a visible `**Source text:** [[<slug>-source]]` line next to the URL line. validate.py errors on a dangling `source_doc` and warns (informationally) on a paper-like page without one.
 
 ### Body
 
@@ -275,7 +276,7 @@ For arxiv-fetch sources, `raw/figures.json` is the manifest of every figure in t
 | Source type | What to read | Notes |
 |---|---|---|
 | arxiv-fetch | `raw/structure.json` for section list, then walk `raw/sections/*.tex` in order. Read `raw/preamble.tex` once for macro context. Pull metadata from `raw/arxiv_meta.json`. **Read `raw/figures.json` for the figure manifest** (per-figure caption, label, resolved_paths, has_tikz, tikz_sources). | When `pdflatex` was available at fetch time, TikZ figures are pre-rendered to `raw/_tikz/*.png` and listed in `resolved_paths` — embed them like any raster figure. When rendering failed (or pdflatex was missing), `resolved_paths` is empty and `tikz_sources` holds the LaTeX source. Custom macros from preamble.tex give context but don't need rendering. |
-| video-to-booklet | `booklet.md` is the prose; pull title from the H1 and authors from video metadata if available. | Booklets are already markdown — just synthesise. |
+| video-transcript-fetch | `content.md` (frontmatter + chapter list + fenced timestamped transcript); title/channel/url/chapters in `metadata.json`. Type `video`. | Chapters give the document structure; transcripts are verbatim speech — synthesise, don't quote timestamps into prose unless anchoring a claim. |
 | pdf-extract | `content.md` for prose, `metadata.json` for header info. If `pdf_profile.json` has `unreliable: true`, flag it in the paper page's "Open questions". | |
 | deep-research | `content.md` for the synthesized research report, `metadata.json` for query/title/date/sources list. Treat as type `paper`. The `deep_research_profile.json` is for provenance only — don't use it for content. | The report is already synthesized across sources; extract concepts from its sections and Key Claims as you would a survey paper. The sources list in metadata.json is for citation provenance, not for re-fetching. |
 

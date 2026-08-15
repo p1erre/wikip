@@ -11,8 +11,15 @@ Strategy:
 Usage: fetch.py <url> --out-dir <dir> [--lang en]
 
 Writes:
-  <out-dir>/transcript.txt   plain text with [mm:ss] timestamps
-  <out-dir>/metadata.json    title, channel, duration, chapters, transcript_source
+  <out-dir>/transcript.txt       plain text with [mm:ss] timestamps
+  <out-dir>/metadata.json        title, channel, duration, chapters, transcript_source
+  <out-dir>/content.md           bundle contract: single-file, LLM-legible rendition
+                                 (frontmatter + chapters + fenced transcript)
+  <out-dir>/video_profile.json   marker file for downstream bundle-type detection
+
+Idempotent: skips when metadata.json + transcript.txt exist, but self-heals a
+missing content.md / video_profile.json on that path (no network) — re-running
+over a legacy bundle upgrades it in place.
 
 Exit codes:
   0  success
@@ -164,9 +171,70 @@ def write_transcript(segments: list[dict], path: Path) -> None:
             f.write(f"[{_fmt_time(seg['start'])}] {seg['text']}\n")
 
 
+# Four-backtick fence so transcript content can never terminate the block.
+FENCE = "````"
+
+
+def write_content_md(out_dir: Path, metadata: dict) -> Path:
+    """Derive <out_dir>/content.md from metadata.json + transcript.txt.
+
+    The bundle contract's single-file, LLM-legible rendition: frontmatter,
+    a chapter list when the video has chapters, then the complete timestamped
+    transcript in a fence. Verbatim — never summarized.
+    """
+    transcript = (out_dir / "transcript.txt").read_text(encoding="utf-8", errors="replace")
+    title = metadata.get("title") or out_dir.name
+    duration = metadata.get("duration")
+    lines = [
+        "---",
+        f"title: {json.dumps(title, ensure_ascii=False)}",
+        f"channel: {json.dumps(metadata.get('channel') or '', ensure_ascii=False)}",
+        f"url: {metadata.get('url', '')}",
+        f"duration: {_fmt_time(duration) if duration else ''}",
+        f"transcript_source: {metadata.get('transcript_source', '')}",
+        "---",
+        "",
+        f"# {title}",
+        "",
+    ]
+    chapters = metadata.get("chapters") or []
+    if chapters:
+        lines += ["## Chapters", ""]
+        for ch in chapters:
+            start = ch.get("start_time")
+            stamp = f"[{_fmt_time(start)}] " if start is not None else ""
+            lines.append(f"- {stamp}{ch.get('title', '')}")
+        lines.append("")
+    lines += ["## Transcript", "", f"{FENCE}text", transcript.rstrip(), FENCE, ""]
+    content_path = out_dir / "content.md"
+    content_path.write_text("\n".join(lines))
+    return content_path
+
+
+def write_video_profile(out_dir: Path, metadata: dict) -> Path:
+    """Marker file: how downstream skills detect this bundle type."""
+    profile_path = out_dir / "video_profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "source": "video-transcript-fetch",
+                "transcript_source": metadata.get("transcript_source"),
+                "url": metadata.get("url"),
+            },
+            indent=2,
+        )
+    )
+    return profile_path
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("url", help="Video URL")
+    p.add_argument(
+        "url",
+        nargs="?",
+        default=None,
+        help="Video URL (optional when the bundle already exists — self-heal only)",
+    )
     p.add_argument("--out-dir", required=True)
     p.add_argument("--lang", default="en", help="Language code or 'auto'")
     args = p.parse_args()
@@ -178,8 +246,17 @@ def main() -> int:
     transcript_path = out_dir / "transcript.txt"
 
     if metadata_path.exists() and transcript_path.exists():
+        metadata = json.loads(metadata_path.read_text())
+        if not (out_dir / "content.md").exists():
+            print(f"derived missing {write_content_md(out_dir, metadata)}")
+        if not (out_dir / "video_profile.json").exists():
+            print(f"derived missing {write_video_profile(out_dir, metadata)}")
         print(f"skip: already exists in {out_dir}")
         return 0
+
+    if not args.url:
+        print("error: url required (no existing bundle to self-heal)", file=sys.stderr)
+        return 1
 
     try:
         metadata = fetch_metadata(args.url)
@@ -221,9 +298,12 @@ def main() -> int:
     metadata["transcript_source"] = transcript_source
     metadata_path.write_text(json.dumps(metadata, indent=2))
     write_transcript(segments, transcript_path)
+    content_path = write_content_md(out_dir, metadata)
+    write_video_profile(out_dir, metadata)
 
     duration = _fmt_time(segments[-1]["end"]) if segments else "?"
     print(f"wrote {transcript_path} ({len(segments)} segments, {duration}, source={transcript_source})")
+    print(f"derived {content_path} ({content_path.stat().st_size:,} bytes)")
     return 0
 
 
