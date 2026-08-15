@@ -1,0 +1,21 @@
+{
+  "name": "corpus-tools",
+  "owner": {
+    "name": "Pierre Rosado",
+    "url": "https://github.com/p1erre"
+  },
+  "plugins": [
+    {
+      "name": "fetch",
+      "source": "./plugins/fetch",
+      "description": "Source fetchers: arXiv, web, PDF, video, books → clean markdown bundles",
+      "version": "0.1.0"
+    },
+    {
+      "name": "wikip",
+      "source": "./plugins/wikip",
+      "description": "Corpus wiki synthesis over fetched bundles: pages, knowledge graph, source staging, reconciliation",
+      "version": "0.1.0"
+    }
+  ]
+}

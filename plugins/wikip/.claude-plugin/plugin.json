@@ -1,0 +1,5 @@
+{
+  "name": "wikip",
+  "version": "0.1.0",
+  "description": "Grow Obsidian corpus wikis from fetched bundles: paper + concept page synthesis, a typed knowledge graph, full source-text staging, hand-fed clips, and cross-corpus reconciliation. Consumes the bundle contract produced by the fetch plugin."
+}
