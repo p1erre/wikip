@@ -1,6 +1,11 @@
 # Repository layout
 
-`.claude/skills/` contains the skill prompts and supporting scripts. Each subdirectory is one skill (`arxiv-fetch`, `pdf-extract`, `web-fetch`, `video-transcript-fetch`, `wikip`).
+Skills live in **two plugins** served from this repo's own marketplace (`.claude-plugin/marketplace.json`, name `corpus-tools`):
+
+- `plugins/fetch/skills/` — source fetchers (`arxiv-fetch`, `web-fetch`, `pdf-extract`, `video-transcript-fetch`, `book-reader`). Each produces a bundle satisfying the contract: `content.md` (single-file, complete, LLM-legible rendition) + `metadata.json` + a profile marker file.
+- `plugins/wikip/skills/` — corpus wiki system (`wikip`, `clip`, `reconcile-corpora`), consuming bundles through that contract only.
+
+`.claude/settings.json` enables both plugins for this repo (skills are namespaced: `/fetch:arxiv-fetch`, `/wikip:wikip`). Settings-enabled plugins load from a **cached copy**, not the working tree — after changing skill code, refresh with `/plugin marketplace update corpus-tools`, or develop live with `claude --plugin-dir ./plugins/fetch --plugin-dir ./plugins/wikip`. Script paths inside SKILL.md files use `${CLAUDE_PLUGIN_ROOT}` (the installed plugin's root); when working in this repo directly, that resolves to `plugins/<name>/`.
 
 `wikis/` is a **separate git repository** nested inside this one (not a submodule, just an independent repo on disk). Each subdirectory under `wikis/` is an Obsidian vault produced by the `wikip` skill.
 

@@ -1,0 +1,5 @@
+{
+  "name": "fetch",
+  "version": "0.1.0",
+  "description": "Turn any source — arXiv LaTeX, PDFs, web pages, videos, long books — into a complete, LLM-legible markdown bundle (content.md + metadata + figures), with fidelity-first extraction: compiler-rendered TikZ, OCR escalation, math recovery, caption-preserving transcripts."
+}

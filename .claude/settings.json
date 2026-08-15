@@ -1,1 +1,14 @@
-{}
+{
+  "extraKnownMarketplaces": {
+    "corpus-tools": {
+      "source": {
+        "source": "directory",
+        "path": "."
+      }
+    }
+  },
+  "enabledPlugins": {
+    "fetch@corpus-tools": true,
+    "wikip@corpus-tools": true
+  }
+}

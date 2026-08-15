@@ -28,11 +28,21 @@ cd wikip
 uv sync
 ```
 
-Link the skills to your Claude Code install:
+The skills ship as two plugins (`fetch` and `wikip`) from this repo's own
+marketplace. Working inside this repo, they're enabled automatically via
+`.claude/settings.json`. To use them in **any other project**:
 
-```bash
-ln -s "$(pwd)/.claude/skills"/* ~/.claude/skills/
 ```
+/plugin marketplace add p1erre/wikip
+/plugin install fetch@corpus-tools
+/plugin install wikip@corpus-tools     # optional: only if you want corpus wikis
+```
+
+Skills are then invoked namespaced (`/fetch:arxiv-fetch`, `/wikip:wikip`) or
+just by asking in natural language. For live plugin development in this repo:
+`claude --plugin-dir ./plugins/fetch --plugin-dir ./plugins/wikip` (settings-
+enabled plugins load from a cached copy; refresh with
+`/plugin marketplace update corpus-tools` after landing changes).
 
 ## Set up your corpus
 
@@ -46,7 +56,7 @@ a vault inside it with `init.py`:
 mkdir wikis && git -C wikis init
 
 # 2. Bootstrap a vault inside it (pages/, graph.json, _schema.json, …)
-python3 .claude/skills/wikip/scripts/init.py wikis/my-wiki
+python3 plugins/wikip/skills/wikip/scripts/init.py wikis/my-wiki
 ```
 
 `init.py` is idempotent — re-running it on an existing vault is a no-op. Add as
@@ -59,19 +69,19 @@ never show up in the project repo's `git status` — commit them with
 
 ```
 # Bootstrap a vault to ingest into (first time only)
-python3 .claude/skills/wikip/scripts/init.py wikis/my-wiki
+python3 plugins/wikip/skills/wikip/scripts/init.py wikis/my-wiki
 
 # Fetch a paper
-/arxiv-fetch 1706.03762
+/fetch:arxiv-fetch 1706.03762
 
 # Fetch a video
-/video-transcript-fetch https://www.youtube.com/watch?v=<video-id>
+/fetch:video-transcript-fetch https://www.youtube.com/watch?v=<video-id>
 
 # Synthesize both into a wiki
-/wikip
+/wikip:wikip
 
 # Validate and regenerate the index
-python3 .claude/skills/wikip/scripts/validate.py wikis/my-wiki
+python3 plugins/wikip/skills/wikip/scripts/validate.py wikis/my-wiki
 ```
 
 ## Skills
