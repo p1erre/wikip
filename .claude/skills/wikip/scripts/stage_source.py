@@ -79,7 +79,7 @@ def main() -> int:
         sys.exit(
             f"{source_dir} has no content.md — every bundle must carry the single-file "
             "rendition. Run the fetcher's derive step first (arxiv-fetch --derive-only; "
-            "video-transcript-fetch re-run; web/pdf/clip/deep-research produce it natively)."
+            "video-transcript-fetch re-run; web/pdf/clip produce it natively)."
         )
 
     text = content_path.read_text(encoding="utf-8", errors="replace")
